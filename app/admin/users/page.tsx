@@ -470,6 +470,7 @@ const changeUserRole = async (userId: string, newRole: UserRole) => {
                                 style={{
                                   ...styles.roleSelect,
                                   opacity: actionLoading === user.id ? 0.5 : 1,
+                                  display: 'none',
                                 }}
                               >
                                 <option value="customer">Customer</option>
@@ -631,6 +632,7 @@ const changeUserRole = async (userId: string, newRole: UserRole) => {
                   style={{
                     ...styles.modalSelect,
                     opacity: actionLoading === selectedUser.id ? 0.5 : 1,
+                    display: 'none',
                   }}
                 >
                   <option value="customer">Customer</option>
