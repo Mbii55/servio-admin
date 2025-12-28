@@ -1,5 +1,15 @@
-import "./globals.css";
+// app/layout.tsx
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import { AuthProvider } from "../src/context/AuthContext";
+import "./globals.css";
+
+const inter = Inter({ subsets: ["latin"] });
+
+export const metadata: Metadata = {
+  title: "Servio Admin",
+  description: "Admin dashboard for Servio platform",
+};
 
 export default function RootLayout({
   children,
@@ -8,8 +18,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
-        <AuthProvider>{children}</AuthProvider>
+      <body className={inter.className}>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

@@ -1,8 +1,9 @@
 // app/admin/bookings/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../../src/lib/api";
+import { useAuth } from "../../../src/context/AuthContext";
 
 type BookingStatus =
   | "pending"
@@ -21,71 +22,189 @@ interface Booking {
   service_price: number;
   customer_notes?: string | null;
   created_at: string;
-
+  updated_at: string;
+  
+  // These will now come from backend
   customer_name?: string;
+  customer_email?: string;
+  customer_phone?: string;
   provider_name?: string;
+  provider_email?: string;
+  provider_phone?: string;
   service_title?: string;
+  service_description?: string;
+  category_name?: string;
+  payment_status?: string;
+  payment_method?: string;
+  transaction_id?: string;  
+  service_images?: any;
 }
 
+type TimePeriod = "today" | "week" | "month" | "quarter" | "year" | "custom";
+
 export default function AdminBookingsPage() {
-  const [all, setAll] = useState<Booking[]>([]);
-  const [status, setStatus] = useState<"all" | BookingStatus>("all");
-  const [query, setQuery] = useState("");
+  const { isAdmin } = useAuth();
+
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = async (opts?: { silent?: boolean }) => {
-    try {
-      if (opts?.silent) setRefreshing(true);
-      else setLoading(true);
+  const [statusFilter, setStatusFilter] = useState<"all" | BookingStatus>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [timePeriod, setTimePeriod] = useState<TimePeriod>("month");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
-      setError(null);
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [showBookingModal, setShowBookingModal] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-      // Keep your endpoint as-is
-      const res = await api.get("/bookings/me");
-      const list: Booking[] = res.data.bookings ?? res.data ?? [];
-      setAll(Array.isArray(list) ? list : []);
-    } catch (e: any) {
-      setError(e?.response?.data?.error || e?.message || "Failed to load bookings");
-      setAll([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+  const dateOnly = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const toISODate = (d: Date) => d.toISOString().split("T")[0];
+  const parseISODateLocal = (iso: string) => {
+    const [y, m, d] = iso.split("-").map((x) => Number(x));
+    if (!y || !m || !d) return new Date(NaN);
+    return new Date(y, m - 1, d);
   };
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const getDefaultDates = useCallback((period: TimePeriod) => {
+    const today = dateOnly(new Date());
+    const start = new Date(today);
+
+    switch (period) {
+      case "today":
+        return { from: toISODate(start), to: toISODate(today) };
+      case "week":
+        start.setDate(today.getDate() - 7);
+        return { from: toISODate(start), to: toISODate(today) };
+      case "month":
+        start.setMonth(today.getMonth() - 1);
+        return { from: toISODate(start), to: toISODate(today) };
+      case "quarter":
+        start.setMonth(today.getMonth() - 3);
+        return { from: toISODate(start), to: toISODate(today) };
+      case "year":
+        start.setFullYear(today.getFullYear() - 1);
+        return { from: toISODate(start), to: toISODate(today) };
+      default:
+        return { from: "", to: "" };
+    }
   }, []);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return all.filter((b) => {
-      if (status !== "all" && b.status !== status) return false;
-      if (!q) return true;
+  const loadBookings = useCallback(
+    async (opts?: { silent?: boolean; overrideFrom?: string; overrideTo?: string }) => {
+      if (!isAdmin) return;
 
-      const hay = [
-        b.booking_number,
-        b.service_title,
-        b.customer_name,
-        b.provider_name,
-        b.scheduled_date,
-        b.scheduled_time,
-        b.status,
+      try {
+        if (opts?.silent) setRefreshing(true);
+        else setLoading(true);
+
+        setError(null);
+
+        const from = opts?.overrideFrom ?? fromDate;
+        const to = opts?.overrideTo ?? toDate;
+
+        // Load ALL bookings (without status filter) so stats show correct counts
+        const params = new URLSearchParams();
+        if (from) params.append("from", from);
+        if (to) params.append("to", to);
+        // DON'T include status filter here - we'll filter locally
+        if (searchQuery.trim()) params.append("q", searchQuery.trim());
+
+        const qs = params.toString();
+        const res = await api.get(`/bookings/admin/all${qs ? `?${qs}` : ""}`);
+
+        const list: Booking[] = res.data?.bookings ?? res.data ?? [];
+        setBookings(Array.isArray(list) ? list : []);
+      } catch (e: any) {
+        setError(e?.response?.data?.error || e?.message || "Failed to load bookings");
+        setBookings([]);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [isAdmin, fromDate, toDate, searchQuery] // Removed statusFilter from dependencies
+  );
+
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    if (timePeriod !== "custom") {
+      const defaults = getDefaultDates(timePeriod);
+      setFromDate(defaults.from);
+      setToDate(defaults.to);
+      loadBookings({ overrideFrom: defaults.from, overrideTo: defaults.to });
+    } else {
+      if (fromDate && toDate) loadBookings();
+      else setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    if (timePeriod !== "custom") {
+      const defaults = getDefaultDates(timePeriod);
+      setFromDate(defaults.from);
+      setToDate(defaults.to);
+      loadBookings({ overrideFrom: defaults.from, overrideTo: defaults.to });
+    }
+  }, [timePeriod, isAdmin, getDefaultDates, loadBookings]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    if (timePeriod !== "custom") return;
+    if (!fromDate || !toDate) return;
+
+    loadBookings();
+  }, [isAdmin, timePeriod, fromDate, toDate, loadBookings]);
+
+  // Filter bookings locally for the table display
+  const filteredBookings = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const fromD = fromDate ? parseISODateLocal(fromDate) : null;
+    const toD = toDate ? parseISODateLocal(toDate) : null;
+
+    return bookings.filter((booking) => {
+      // Apply status filter locally
+      if (statusFilter !== "all" && booking.status !== statusFilter) return false;
+
+      const sd = parseISODateLocal(booking.scheduled_date);
+      if (fromD && !Number.isNaN(fromD.getTime()) && sd < fromD) return false;
+      if (toD && !Number.isNaN(toD.getTime()) && sd > toD) return false;
+
+      if (!query) return true;
+
+      const searchableFields = [
+        booking.booking_number,
+        booking.service_title,
+        booking.customer_name,
+        booking.provider_name,
+        booking.customer_email,
+        booking.provider_email,
+        booking.scheduled_date,
+        booking.scheduled_time,
+        booking.status,
+        booking.category_name,
+        booking.payment_status,
+        booking.payment_method,
+        booking.transaction_id,
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
 
-      return hay.includes(q);
+      return searchableFields.includes(query);
     });
-  }, [all, status, query]);
+  }, [bookings, statusFilter, searchQuery, fromDate, toDate]);
 
-  const counts = useMemo(() => {
-    const base = {
-      all: all.length,
+  // Calculate status counts from ALL bookings (not filtered ones)
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      all: bookings.length,
       pending: 0,
       accepted: 0,
       in_progress: 0,
@@ -93,276 +212,453 @@ export default function AdminBookingsPage() {
       cancelled: 0,
       rejected: 0,
     };
-    for (const b of all) base[b.status] += 1;
-    return base;
-  }, [all]);
 
-  const updateStatus = async (id: string, next: BookingStatus) => {
+    bookings.forEach((b) => {
+      counts[b.status] = (counts[b.status] || 0) + 1;
+    });
+
+    return counts as {
+      all: number;
+      pending: number;
+      accepted: number;
+      in_progress: number;
+      completed: number;
+      cancelled: number;
+      rejected: number;
+    };
+  }, [bookings]); // Use ALL bookings for stats
+
+  const updateBookingStatus = async (id: string, nextStatus: BookingStatus) => {
+    if (!confirm(`Change booking status to ${nextStatus.replace("_", " ")}?`)) return;
+
+    setActionLoading(id);
     try {
-      await api.patch(`/bookings/${id}/status`, { status: next });
-      await load({ silent: true });
+      await api.patch(`/bookings/${id}/status`, { status: nextStatus });
+
+      await loadBookings({ silent: true });
+
+      if (selectedBooking?.id === id) {
+        setSelectedBooking({ ...selectedBooking, status: nextStatus });
+      }
     } catch (e: any) {
-      setError(e?.response?.data?.error || e?.message || "Failed to update status");
+      alert(e?.response?.data?.error || e?.message || "Failed to update booking status");
+    } finally {
+      setActionLoading(null);
     }
   };
 
+  const viewBookingDetails = (booking: Booking) => {
+    setSelectedBooking(booking);
+    setShowBookingModal(true);
+  };
+
+  const formatCurrency = (amount: number) =>
+    `QAR ${amount}`;
+
+  if (!isAdmin) return null;
+
   return (
-    <div style={styles.page}>
-      {/* Header */}
-      <div style={styles.header}>
-        <div>
-          <h1 style={styles.h1}>Bookings</h1>
-          <p style={styles.sub}>View and manage all bookings.</p>
-        </div>
-
-        <button
-          onClick={() => load({ silent: true })}
-          disabled={loading || refreshing}
-          style={{
-            ...styles.refreshBtn,
-            opacity: loading || refreshing ? 0.65 : 1,
-            cursor: loading || refreshing ? "not-allowed" : "pointer",
-          }}
-        >
-          {refreshing ? "Refreshing…" : "Refresh"}
-        </button>
+    <>
+      {/* Stats Cards */}
+      <div style={styles.statsGrid}>
+        <StatCard
+          title="Total Bookings"
+          value={bookings.length.toString()}
+          icon={
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path
+                d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                stroke="white"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          }
+          gradient="linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)"
+        />
+        <StatCard
+          title="Pending"
+          value={statusCounts.pending.toString()}
+          icon={
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path
+                d="M10 18a8 8 0 100-16 8 8 0 000 16z"
+                stroke="white"
+                strokeWidth="1.5"
+              />
+              <path
+                d="M10 6v6l4 2"
+                stroke="white"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+          }
+          gradient="linear-gradient(135deg, #F59E0B 0%, #D97706 100%)"
+        />
+        <StatCard
+          title="Completed"
+          value={statusCounts.completed.toString()}
+          icon={
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path
+                d="M10 18a8 8 0 100-16 8 8 0 000 16z"
+                fill="white"
+                opacity="0.3"
+              />
+              <path
+                d="M7 10l2 2 4-4"
+                stroke="white"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          }
+          gradient="linear-gradient(135deg, #10B981 0%, #059669 100%)"
+        />
+        <StatCard
+          title="In Progress"
+          value={statusCounts.in_progress.toString()}
+          icon={
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path
+                d="M10 2v8l4 4"
+                stroke="white"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <circle cx="10" cy="10" r="8" stroke="white" strokeWidth="1.5" />
+            </svg>
+          }
+          gradient="linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%)"
+        />
       </div>
 
-      {/* Summary chips */}
-      <div style={styles.chipsRow}>
-        <SummaryChip label="All" value={counts.all} active={status === "all"} onClick={() => setStatus("all")} />
-        <SummaryChip label="Pending" value={counts.pending} active={status === "pending"} onClick={() => setStatus("pending")} />
-        <SummaryChip label="Accepted" value={counts.accepted} active={status === "accepted"} onClick={() => setStatus("accepted")} />
-        <SummaryChip label="In progress" value={counts.in_progress} active={status === "in_progress"} onClick={() => setStatus("in_progress")} />
-        <SummaryChip label="Completed" value={counts.completed} active={status === "completed"} onClick={() => setStatus("completed")} />
-        <SummaryChip label="Cancelled" value={counts.cancelled} active={status === "cancelled"} onClick={() => setStatus("cancelled")} />
-        <SummaryChip label="Rejected" value={counts.rejected} active={status === "rejected"} onClick={() => setStatus("rejected")} />
+      {/* Status Filter Chips */}
+      <div style={styles.statusChips}>
+        <StatusChip label="All" value={statusCounts.all} active={statusFilter === "all"} onClick={() => setStatusFilter("all")} />
+        <StatusChip label="Pending" value={statusCounts.pending} active={statusFilter === "pending"} onClick={() => setStatusFilter("pending")} />
+        <StatusChip label="Accepted" value={statusCounts.accepted} active={statusFilter === "accepted"} onClick={() => setStatusFilter("accepted")} />
+        <StatusChip label="In Progress" value={statusCounts.in_progress} active={statusFilter === "in_progress"} onClick={() => setStatusFilter("in_progress")} />
+        <StatusChip label="Completed" value={statusCounts.completed} active={statusFilter === "completed"} onClick={() => setStatusFilter("completed")} />
+        <StatusChip label="Cancelled" value={statusCounts.cancelled} active={statusFilter === "cancelled"} onClick={() => setStatusFilter("cancelled")} />
+        <StatusChip label="Rejected" value={statusCounts.rejected} active={statusFilter === "rejected"} onClick={() => setStatusFilter("rejected")} />
       </div>
 
-      {/* Toolbar */}
-      <div style={styles.toolbar}>
-        <div style={styles.searchWrap}>
-          <span style={{ opacity: 0.7 }}>🔎</span>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search booking #, service, customer…"
-            style={styles.searchInput}
-          />
-          {!!query && (
-            <button onClick={() => setQuery("")} style={styles.clearBtn} aria-label="Clear search">
-              ✕
-            </button>
-          )}
-        </div>
-
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value as any)}
-          style={styles.select}
-        >
-          <option value="all">All statuses</option>
-          <option value="pending">Pending</option>
-          <option value="accepted">Accepted</option>
-          <option value="in_progress">In progress</option>
-          <option value="completed">Completed</option>
-          <option value="cancelled">Cancelled</option>
-          <option value="rejected">Rejected</option>
-        </select>
-      </div>
-
-      {loading && <div style={styles.loading}>Loading bookings…</div>}
-
-      {error && (
-        <div style={styles.errorBox}>
-          <div style={{ fontWeight: 900 }}>Something went wrong</div>
-          <div style={{ marginTop: 6 }}>{error}</div>
-        </div>
-      )}
-
-      {!loading && !error && (
-        <div style={styles.card}>
-          <div style={styles.tableTop}>
-            <div style={styles.tableTitle}>
-              Results <span style={styles.tableHint}>{filtered.length}</span>
+      {/* Filters */}
+      <div style={styles.filterPanel}>
+        <div style={styles.filterGrid}>
+          {/* Search */}
+          <div style={styles.searchContainer}>
+            <div style={styles.searchIconWrapper}>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path
+                  d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
+                  fill="#9CA3AF"
+                />
+              </svg>
             </div>
-            <div style={styles.tableHint}>
-              Tip: Use search to find booking numbers quickly
-            </div>
-          </div>
-
-          <div style={{ overflowX: "auto" }}>
-            <table width="100%" cellPadding={0} cellSpacing={0} style={styles.table}>
-              <thead>
-                <tr>
-                  <Th>Booking</Th>
-                  <Th>Service</Th>
-                  <Th>Customer</Th>
-                  <Th>Provider</Th>
-                  <Th>Date & Time</Th>
-                  <Th>Status</Th>
-                  <Th align="right">Actions</Th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {filtered.map((b) => (
-                  <tr key={b.id} style={styles.tr}>
-                    <Td>
-                      <div style={{ fontWeight: 900, color: "#0F172A" }}>{b.booking_number}</div>
-                      <div style={{ fontSize: 12, color: "#64748B", marginTop: 4 }}>
-                        Created: {new Date(b.created_at).toLocaleString()}
-                      </div>
-                    </Td>
-
-                    <Td>
-                      <div style={{ fontWeight: 800, color: "#0F172A" }}>{b.service_title ?? "-"}</div>
-                      <div style={{ fontSize: 12, color: "#64748B", marginTop: 4 }}>
-                        Price: QAR {Number(b.service_price ?? 0).toFixed(2)}
-                      </div>
-                    </Td>
-
-                    <Td>{b.customer_name ?? "-"}</Td>
-                    <Td>{b.provider_name ?? "-"}</Td>
-
-                    <Td>
-                      <div style={{ fontWeight: 800, color: "#0F172A" }}>{b.scheduled_date}</div>
-                      <div style={{ fontSize: 12, color: "#64748B", marginTop: 4 }}>{b.scheduled_time}</div>
-                    </Td>
-
-                    <Td>
-                      <StatusBadge status={b.status} />
-                    </Td>
-
-                    <Td align="right">
-                      <Actions booking={b} onAction={updateStatus} />
-                    </Td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {filtered.length === 0 && (
-              <div style={styles.empty}>
-                <div style={{ fontSize: 18, fontWeight: 900, color: "#0F172A" }}>
-                  No bookings found
-                </div>
-                <div style={{ marginTop: 6, color: "#64748B" }}>
-                  Try clearing filters or searching with a different keyword.
-                </div>
-              </div>
+            <input
+              type="text"
+              placeholder="Search bookings, customers, providers..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={styles.searchInput}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                style={styles.clearButton}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path
+                    d="M12 4L4 12M4 4l8 8"
+                    stroke="#6B7280"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
             )}
           </div>
+
+          {/* Time Period */}
+          <div style={styles.filterItem}>
+            <label style={styles.filterLabel}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ marginRight: 6 }}>
+                <path d="M5 2v2M11 2v2M3 7h10M4 4h8a1 1 0 011 1v8a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z" stroke="#6B7280" strokeWidth="1.5" />
+              </svg>
+              Period
+            </label>
+            <select
+              value={timePeriod}
+              onChange={(e) => setTimePeriod(e.target.value as TimePeriod)}
+              style={styles.select}
+            >
+              <option value="today">Today</option>
+              <option value="week">Last 7 Days</option>
+              <option value="month">Last 30 Days</option>
+              <option value="quarter">Last 3 Months</option>
+              <option value="year">Last Year</option>
+              <option value="custom">Custom Range</option>
+            </select>
+          </div>
+
+          {/* Custom Date Range */}
+          {timePeriod === "custom" && (
+            <>
+              <div style={styles.filterItem}>
+                <label style={styles.filterLabel}>From</label>
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  style={styles.dateInput}
+                />
+              </div>
+              <div style={styles.filterItem}>
+                <label style={styles.filterLabel}>To</label>
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  style={styles.dateInput}
+                />
+              </div>
+            </>
+          )}
+
+          {/* Refresh Button */}
+          <button
+            onClick={() => loadBookings({ silent: true })}
+            disabled={loading || refreshing}
+            style={{
+              ...styles.refreshButton,
+              opacity: loading || refreshing ? 0.5 : 1,
+              cursor: loading || refreshing ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 20 20"
+              fill="none"
+              style={{
+                transform: refreshing ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.3s ease',
+              }}
+            >
+              <path
+                d="M4 2v6h6M16 18v-6h-6"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M16.91 8A8 8 0 103.04 12.91"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            {refreshing ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
+      </div>
+
+      {/* Error Message */}
+      {error && (
+        <div style={styles.errorAlert}>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <circle cx="10" cy="10" r="9" fill="#FEE2E2" />
+            <path d="M10 6v4M10 14h.01" stroke="#DC2626" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          <span>{error}</span>
         </div>
       )}
+
+      {/* Bookings Table */}
+      <div style={styles.tableContainer}>
+        {loading ? (
+          <div style={styles.loadingState}>
+            <div style={styles.spinner} />
+            <p>Loading bookings...</p>
+          </div>
+        ) : filteredBookings.length === 0 ? (
+          <div style={styles.emptyState}>
+            <div style={styles.emptyIconContainer}>
+              <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+                <path
+                  d="M27 15H21a6 6 0 00-6 6v30a6 6 0 006 6h30a6 6 0 006-6V21a6 6 0 00-6-6h-6M27 15a6 6 0 006 6h6a6 6 0 006-6M27 15a6 6 0 016-6h6a6 6 0 016 6"
+                  stroke="#D1D5DB"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+            <h3 style={styles.emptyTitle}>
+              {searchQuery ? "No bookings found" : "No bookings yet"}
+            </h3>
+            <p style={styles.emptyText}>
+              {searchQuery
+                ? "Try adjusting your search or filters"
+                : "Bookings will appear here as customers make reservations"}
+            </p>
+          </div>
+        ) : (
+          <>
+            <div style={styles.tableHeader}>
+              <h3 style={styles.tableTitle}>
+                Bookings ({filteredBookings.length})
+              </h3>
+              <p style={styles.tableSubtitle}>
+                Showing {filteredBookings.length} of {bookings.length} total
+              </p>
+            </div>
+
+            <div style={{ overflowX: "auto" }}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Booking</th>
+                    <th style={styles.th}>Service</th>
+                    <th style={styles.th}>Customer</th>
+                    <th style={styles.th}>Provider</th>
+                    <th style={styles.th}>Schedule</th>
+                    <th style={styles.th}>Status</th>
+                    <th style={styles.th}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredBookings.map((booking) => (
+                    <tr key={booking.id} style={styles.tr}>
+                      {/* Booking */}
+                      <td style={styles.td}>
+                        <div
+                          style={styles.bookingNumber}
+                          onClick={() => viewBookingDetails(booking)}
+                        >
+                          #{booking.booking_number}
+                        </div>
+                        <div style={styles.bookingDate}>
+                          {new Date(booking.created_at).toLocaleDateString()}
+                        </div>
+                      </td>
+
+                      {/* Service */}
+                      <td style={styles.td}>
+                        <div style={styles.serviceName}>{booking.service_title || "-"}</div>
+                        <div style={styles.servicePrice}>{formatCurrency(booking.service_price)}</div>
+                      </td>
+
+                      {/* Customer */}
+                      <td style={styles.td}>
+                        {booking.customer_name ? (
+                          <>
+                            <div style={styles.personName}>{booking.customer_name}</div>
+                            {booking.customer_email && (
+                              <div style={styles.personEmail}>{booking.customer_email}</div>
+                            )}
+                          </>
+                        ) : (
+                          <span style={styles.na}>N/A</span>
+                        )}
+                      </td>
+
+                      {/* Provider */}
+                      <td style={styles.td}>
+                        {booking.provider_name ? (
+                          <>
+                            <div style={styles.personName}>{booking.provider_name}</div>
+                            {booking.provider_email && (
+                              <div style={styles.personEmail}>{booking.provider_email}</div>
+                            )}
+                          </>
+                        ) : (
+                          <span style={styles.na}>N/A</span>
+                        )}
+                      </td>
+
+                      {/* Schedule */}
+                      <td style={styles.td}>
+                        <div style={styles.scheduleDate}>{booking.scheduled_date}</div>
+                        <div style={styles.scheduleTime}>{booking.scheduled_time}</div>
+                      </td>
+
+                      {/* Status */}
+                      <td style={styles.td}>
+                        <StatusBadge status={booking.status} />
+                      </td>
+
+                      {/* Actions */}
+                      <td style={styles.td}>
+                        <button onClick={() => viewBookingDetails(booking)} style={styles.viewButton}>
+                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                            <path d="M1 7s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                            <circle cx="7" cy="7" r="2" stroke="currentColor" strokeWidth="1.5" />
+                          </svg>
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Modal - Keep the existing modal exactly as is */}
+      {showBookingModal && selectedBooking && (
+        <div style={modalOverlayStyle}>
+          <div style={modalStyle}>
+            <BookingModal
+              booking={selectedBooking}
+              onClose={() => {
+                setShowBookingModal(false);
+                setSelectedBooking(null);
+              }}
+              onStatusChange={updateBookingStatus}
+              loadingId={actionLoading}
+              formatCurrency={formatCurrency}
+            />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ----------------------------- Components ----------------------------- */
+
+function StatCard({
+  title,
+  value,
+  icon,
+  gradient,
+}: {
+  title: string;
+  value: string;
+  icon: React.ReactNode;
+  gradient: string;
+}) {
+  return (
+    <div style={styles.statCard}>
+      <div style={{ ...styles.statIcon, background: gradient }}>{icon}</div>
+      <div style={styles.statValue}>{value}</div>
+      <div style={styles.statTitle}>{title}</div>
     </div>
   );
 }
 
-/* ---------- Components ---------- */
-
-function Actions({
-  booking,
-  onAction,
-}: {
-  booking: Booking;
-  onAction: (id: string, s: BookingStatus) => void;
-}) {
-  if (booking.status === "pending") {
-    return (
-      <div style={styles.actionsRow}>
-        <ActionBtn label="Accept" variant="primary" onClick={() => onAction(booking.id, "accepted")} />
-        <ActionBtn label="Reject" variant="danger" onClick={() => onAction(booking.id, "rejected")} />
-      </div>
-    );
-  }
-
-  if (booking.status === "accepted") {
-    return (
-      <div style={styles.actionsRow}>
-        <ActionBtn label="Start" variant="primary" onClick={() => onAction(booking.id, "in_progress")} />
-      </div>
-    );
-  }
-
-  if (booking.status === "in_progress") {
-    return (
-      <div style={styles.actionsRow}>
-        <ActionBtn label="Complete" variant="primary" onClick={() => onAction(booking.id, "completed")} />
-      </div>
-    );
-  }
-
-  return <span style={{ color: "#94A3B8", fontWeight: 800 }}>—</span>;
-}
-
-function ActionBtn({
-  label,
-  onClick,
-  variant,
-}: {
-  label: string;
-  onClick: () => void;
-  variant?: "primary" | "danger" | "neutral";
-}) {
-  const v = variant ?? "neutral";
-
-  const map = {
-    primary: { bg: "#2F6BFF", border: "#2F6BFF", fg: "#FFFFFF" },
-    danger: { bg: "#FEF2F2", border: "#FECACA", fg: "#B91C1C" },
-    neutral: { bg: "#FFFFFF", border: "#E5E7EB", fg: "#0F172A" },
-  }[v];
-
-  return (
-    <button onClick={onClick} style={{ ...styles.actionBtn, ...map }}>
-      {label}
-    </button>
-  );
-}
-
-function StatusBadge({ status }: { status: BookingStatus }) {
-  const theme: Record<BookingStatus, { bg: string; fg: string; bd: string }> = {
-    pending: { bg: "#FFFBEB", fg: "#B45309", bd: "#FDE68A" },
-    accepted: { bg: "#EFF6FF", fg: "#1D4ED8", bd: "#BFDBFE" },
-    in_progress: { bg: "#F5F3FF", fg: "#6D28D9", bd: "#DDD6FE" },
-    completed: { bg: "#ECFDF5", fg: "#047857", bd: "#A7F3D0" },
-    cancelled: { bg: "#F1F5F9", fg: "#475569", bd: "#E2E8F0" },
-    rejected: { bg: "#FEF2F2", fg: "#B91C1C", bd: "#FECACA" },
-  };
-
-  const t = theme[status];
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "6px 10px",
-        borderRadius: 999,
-        fontSize: 12,
-        fontWeight: 900,
-        color: t.fg,
-        background: t.bg,
-        border: `1px solid ${t.bd}`,
-        textTransform: "capitalize",
-        whiteSpace: "nowrap",
-      }}
-    >
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: 999,
-          background: t.fg,
-          opacity: 0.9,
-        }}
-      />
-      {status.replace("_", " ")}
-    </span>
-  );
-}
-
-function SummaryChip({
+function StatusChip({
   label,
   value,
   active,
@@ -373,217 +669,630 @@ function SummaryChip({
   active?: boolean;
   onClick: () => void;
 }) {
+  const baseStyle = {
+    display: "inline-flex" as const,
+    alignItems: "center" as const,
+    gap: 8,
+    padding: "8px 14px",
+    borderRadius: 20,
+    borderWidth: 2,
+    borderStyle: "solid" as const,
+    background: "#FFFFFF",
+    cursor: "pointer" as const,
+    fontSize: 13,
+    fontWeight: 700,
+    color: "#374151",
+    transition: "all 0.2s ease",
+    outline: "none" as const,
+  };
+
+  const activeStyle = active ? {
+    borderColor: "#3B82F6",
+    background: "#EFF6FF",
+    color: "#2563EB",
+  } : {
+    borderColor: "#E5E7EB",
+  };
+
+  const badgeStyle = {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    background: active ? "#3B82F6" : "#F3F4F6",
+    color: active ? "#FFFFFF" : "#374151",
+    display: "flex" as const,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    fontSize: 11,
+    fontWeight: 700,
+    padding: "0 6px",
+  };
+
   return (
     <button
       onClick={onClick}
-      style={{
-        ...styles.chip,
-        background: active ? "#EEF2FF" : "#FFFFFF",
-        borderColor: active ? "#E0E7FF" : "#E9ECF2",
-        color: active ? "#0F172A" : "#334155",
-      }}
+      style={{ ...baseStyle, ...activeStyle }}
     >
-      <span style={{ fontWeight: 900 }}>{label}</span>
-      <span style={styles.chipCount}>{value}</span>
+      <span>{label}</span>
+      <span style={badgeStyle}>
+        {value}
+      </span>
     </button>
   );
 }
 
-/* ---------- Tiny helpers ---------- */
+function StatusBadge({ status }: { status: BookingStatus }) {
+  const theme: Record<BookingStatus, { background: string; color: string }> = {
+    pending: { background: "#FEF3C7", color: "#92400E" },
+    accepted: { background: "#DBEAFE", color: "#1E40AF" },
+    in_progress: { background: "#E0E7FF", color: "#3730A3" },
+    completed: { background: "#D1FAE5", color: "#065F46" },
+    cancelled: { background: "#F3F4F6", color: "#374151" },
+    rejected: { background: "#FEE2E2", color: "#991B1B" },
+  };
 
-function Th({ children, align }: { children: any; align?: "left" | "right" | "center" }) {
+  const t = theme[status];
   return (
-    <th
-      align={align ?? "left"}
-      style={{
-        padding: "12px 14px",
-        fontSize: 12,
-        fontWeight: 900,
-        color: "#64748B",
-        textTransform: "uppercase",
-        letterSpacing: 0.5,
-        background: "#F8FAFC",
-        borderBottom: "1px solid #E9ECF2",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {children}
-    </th>
+    <span style={{ ...styles.badge, background: t.background, color: t.color }}>
+      {status.replace("_", " ")}
+    </span>
   );
 }
 
-function Td({ children, align }: { children: any; align?: "left" | "right" | "center" }) {
+function BookingModal({
+  booking,
+  onClose,
+  onStatusChange,
+  loadingId,
+  formatCurrency,
+}: {
+  booking: Booking;
+  onClose: () => void;
+  onStatusChange: (id: string, status: BookingStatus) => void;
+  loadingId: string | null;
+  formatCurrency: (n: number) => string;
+}) {
   return (
-    <td
-      align={align ?? "left"}
-      style={{
-        padding: "14px 14px",
-        borderBottom: "1px solid #F1F5F9",
-        verticalAlign: "top",
-        color: "#0F172A",
-        fontSize: 13,
-      }}
-    >
-      {children}
-    </td>
+    <>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#111827" }}>
+            Booking #{booking.booking_number}
+          </h2>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
+            <StatusBadge status={booking.status} />
+            <span style={{ fontSize: 14, color: "#6B7280" }}>
+              Created: {new Date(booking.created_at).toLocaleString()}
+            </span>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          style={{
+            background: "none",
+            border: "none",
+            fontSize: 24,
+            color: "#9CA3AF",
+            cursor: "pointer",
+            padding: 0,
+            width: 32,
+            height: 32,
+            display: "grid",
+            placeItems: "center",
+          }}
+        >
+          ×
+        </button>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 24,
+          maxHeight: "70vh",
+          overflowY: "auto",
+          paddingRight: 8,
+        }}
+      >
+        {/* Left Column */}
+        <div>
+          <h3 style={{ margin: "0 0 12px 0", fontSize: 16, fontWeight: 700, color: "#374151" }}>
+            Booking Information
+          </h3>
+          <div style={{ background: "#F9FAFB", borderRadius: 8, padding: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+              <DetailItem label="Booking Number" value={`#${booking.booking_number}`} />
+              <DetailItem label="Status" value={booking.status.replace("_", " ")} />
+              <DetailItem label="Service Price" value={formatCurrency(booking.service_price)} />
+              <DetailItem label="Category" value={booking.category_name || "N/A"} />
+              <DetailItem label="Scheduled Date" value={booking.scheduled_date} />
+              <DetailItem label="Scheduled Time" value={booking.scheduled_time} />
+              <DetailItem label="Created" value={new Date(booking.created_at).toLocaleString()} />
+              <DetailItem label="Last Updated" value={new Date(booking.updated_at).toLocaleString()} />
+            </div>
+
+            {booking.customer_notes && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>Customer Notes</div>
+                <div style={{ fontSize: 14, color: "#4B5563", lineHeight: 1.6, background: "white", padding: 12, borderRadius: 6, border: "1px solid #E5E7EB" }}>
+                  {booking.customer_notes}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Column */}
+        <div>
+          <div style={{ marginBottom: 24 }}>
+            <h3 style={{ margin: "0 0 12px 0", fontSize: 16, fontWeight: 700, color: "#374151" }}>
+              Customer Information
+            </h3>
+            <div style={{ background: "#F9FAFB", borderRadius: 8, padding: 16 }}>
+              <DetailItem label="Name" value={booking.customer_name || "N/A"} />
+              <DetailItem label="Email" value={booking.customer_email || "N/A"} />
+              <DetailItem label="Phone" value={booking.customer_phone || "N/A"} />
+            </div>
+          </div>
+
+          <div>
+            <h3 style={{ margin: "0 0 12px 0", fontSize: 16, fontWeight: 700, color: "#374151" }}>
+              Provider Information
+            </h3>
+            <div style={{ background: "#F9FAFB", borderRadius:"8", padding: 16 }}>
+              <DetailItem label="Name" value={booking.provider_name || "N/A"} />
+              <DetailItem label="Email" value={booking.provider_email || "N/A"} />
+              <DetailItem label="Phone" value={booking.provider_phone || "N/A"} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 24 }}>
+        <h3 style={{ margin: "0 0 12px 0", fontSize: 16, fontWeight: 700, color: "#374151" }}>Service Details</h3>
+        <div style={{ background: "#F9FAFB", borderRadius: 8, padding: 16 }}>
+          <DetailItem label="Service Title" value={booking.service_title || "N/A"} />
+          {booking.service_description && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>Description</div>
+              <div style={{ fontSize: 14, color: "#4B5563", lineHeight: 1.6, background: "white", padding: 12, borderRadius: 6, border: "1px solid #E5E7EB" }}>
+                {booking.service_description}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 
-/* ---------- Styles ---------- */
+function DetailItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 14, color: "#4B5563" }}>{value}</div>
+    </div>
+  );
+}
+
+/* ----------------------------- Styles ----------------------------- */
 
 const styles: Record<string, React.CSSProperties> = {
-  page: { display: "grid", gap: 14 },
-
-  header: {
+  // Stats
+  statsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+    gap: 20,
+    marginBottom: 24,
+  },
+  statCard: {
+    background: "#FFFFFF",
+    borderRadius: 16,
+    padding: 20,
+    border: "1px solid #F3F4F6",
+    boxShadow: "0 4px 16px rgba(0, 0, 0, 0.04)",
     display: "flex",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
+    flexDirection: "column",
     gap: 12,
   },
-  h1: { margin: 0, fontSize: 22, fontWeight: 900, color: "#0F172A" },
-  sub: { margin: "6px 0 0", fontSize: 13, color: "#64748B" },
-
-  refreshBtn: {
-    padding: "10px 12px",
+  statIcon: {
+    width: 48,
+    height: 48,
     borderRadius: 12,
-    border: "1px solid #E9ECF2",
-    background: "#FFFFFF",
-    fontWeight: 900,
-    color: "#0F172A",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+  },
+  statValue: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#111827",
+    letterSpacing: "-0.02em",
+  },
+  statTitle: {
+    fontSize: 14,
+    color: "#6B7280",
+    fontWeight: "600",
   },
 
-  chipsRow: {
+  // Status Chips (updated to avoid mixing shorthand/longhand)
+  statusChips: {
     display: "flex",
+    gap: 8,
     flexWrap: "wrap",
-    gap: 10,
+    marginBottom: 24,
   },
-  chip: {
+  statusChip: {
     display: "inline-flex",
     alignItems: "center",
-    gap: 10,
-    padding: "8px 12px",
-    borderRadius: 999,
-    border: "1px solid #E9ECF2",
+    gap: 8,
+    padding: "8px 14px",
+    borderRadius: 20,
+    borderWidth: 2,
+    borderStyle: "solid",
+    borderColor: "#E5E7EB",
     background: "#FFFFFF",
     cursor: "pointer",
-    fontSize: 12,
-    fontWeight: 800,
+    fontSize: 13,
+    fontWeight: 700,
+    color: "#374151",
+    transition: "all 0.2s ease",
+    outline: "none",
   },
-  chipCount: {
-    minWidth: 22,
-    height: 22,
-    borderRadius: 999,
-    background: "#F1F5F9",
-    border: "1px solid #E2E8F0",
-    display: "grid",
-    placeItems: "center",
-    fontSize: 12,
-    fontWeight: 900,
-    color: "#0F172A",
-    padding: "0 8px",
+  statusChipActive: {
+    borderColor: "#3B82F6",
+    background: "#EFF6FF",
+    color: "#2563EB",
   },
-
-  toolbar: {
+  statusChipBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    background: "#F3F4F6",
+    color: "#374151",
     display: "flex",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-    marginTop: 2,
+    justifyContent: "center",
+    fontSize: 11,
+    fontWeight: 700,
+    padding: "0 6px",
+  },
+  statusChipBadgeActive: {
+    background: "#3B82F6",
+    color: "#FFFFFF",
   },
 
-  searchWrap: {
-    flex: 1,
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
+  // Filters
+  filterPanel: {
     background: "#FFFFFF",
-    border: "1px solid #E9ECF2",
-    borderRadius: 14,
-    padding: "10px 12px",
+    border: "1px solid #F3F4F6",
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 24,
+    boxShadow: "0 4px 16px rgba(0, 0, 0, 0.04)",
+  },
+  filterGrid: {
+    display: "grid",
+    gridTemplateColumns: "2fr repeat(2, 1fr) auto",
+    gap: 16,
+    alignItems: "end",
+  },
+  searchContainer: {
+    position: "relative",
+  },
+  searchIconWrapper: {
+    position: "absolute",
+    left: 14,
+    top: "50%",
+    transform: "translateY(-50%)",
+    pointerEvents: "none",
   },
   searchInput: {
     width: "100%",
-    border: "none",
+    height: 48,
+    paddingLeft: 44,
+    paddingRight: 40,
+    borderWidth: 2,
+    borderStyle: "solid",
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    fontSize: 15,
+    fontWeight: "500",
     outline: "none",
-    fontSize: 13,
-    color: "#0F172A",
-    fontWeight: 700,
-    background: "transparent",
+    backgroundColor: "#FFFFFF",
   },
-  clearBtn: {
+  clearButton: {
+    position: "absolute",
+    right: 12,
+    top: "50%",
+    transform: "translateY(-50%)",
+    background: "none",
     border: "none",
-    background: "#F1F5F9",
-    borderRadius: 10,
-    padding: "6px 8px",
     cursor: "pointer",
-    fontWeight: 900,
-    color: "#334155",
+    padding: 4,
+    display: "flex",
   },
-
-  select: {
-    padding: "10px 12px",
-    borderRadius: 14,
-    border: "1px solid #E9ECF2",
-    background: "#FFFFFF",
-    fontWeight: 800,
-    color: "#0F172A",
-    minWidth: 180,
+  filterItem: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
   },
-
-  loading: {
-    padding: 12,
-    color: "#64748B",
-    fontWeight: 800,
-  },
-
-  errorBox: {
-    padding: 12,
-    borderRadius: 14,
-    background: "#FEF2F2",
-    border: "1px solid #FECACA",
-    color: "#991B1B",
-  },
-
-  card: {
-    border: "1px solid #E9ECF2",
-    borderRadius: 16,
-    background: "#FFFFFF",
-    boxShadow: "0 10px 24px rgba(16,24,40,0.06)",
-    overflow: "hidden",
-  },
-
-  tableTop: {
-    padding: "12px 14px",
-    borderBottom: "1px solid #E9ECF2",
+  filterLabel: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#374151",
   },
-  tableTitle: { fontSize: 14, fontWeight: 900, color: "#0F172A" },
-  tableHint: { fontSize: 12, color: "#64748B", fontWeight: 800 },
+  select: {
+    height: 48,
+    padding: "0 14px",
+    borderWidth: 2,
+    borderStyle: "solid",
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    fontSize: 14,
+    fontWeight: 600,
+    cursor: "pointer",
+    outline: "none",
+    background: "#FFFFFF",
+  },
+  dateInput: {
+    height: 48,
+    padding: "0 14px",
+    borderWidth: 2,
+    borderStyle: "solid",
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    fontSize: 14,
+    fontWeight: 600,
+    outline: "none",
+    background: "#FFFFFF",
+  },
+  refreshButton: {
+    height: 48,
+    padding: "0 20px",
+    border: "none",
+    background: "linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)",
+    borderRadius: 12,
+    fontSize: 14,
+    fontWeight: 700,
+    color: "#FFFFFF",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    boxShadow: "0 4px 12px rgba(59, 130, 246, 0.3)",
+  },
 
+  // Error Alert
+  errorAlert: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: 16,
+    background: "#FEE2E2",
+    border: "1px solid #FCA5A5",
+    borderRadius: 12,
+    color: "#991B1B",
+    marginBottom: 24,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
+  // Table
+  tableContainer: {
+    background: "#FFFFFF",
+    border: "1px solid #F3F4F6",
+    borderRadius: 16,
+    overflow: "hidden",
+    boxShadow: "0 4px 16px rgba(0, 0, 0, 0.04)",
+  },
+  tableHeader: {
+    padding: 20,
+    borderBottom: "1px solid #F3F4F6",
+  },
+  tableTitle: {
+    margin: 0,
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  tableSubtitle: {
+    margin: "4px 0 0",
+    fontSize: 13,
+    color: "#6B7280",
+  },
   table: {
     width: "100%",
     borderCollapse: "collapse",
+    minWidth: 1000,
+  },
+  th: {
+    padding: "16px 20px",
+    textAlign: "left",
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+    background: "#F9FAFB",
+    borderBottom: "2px solid #E5E7EB",
   },
   tr: {
-    background: "#FFFFFF",
+    borderTop: "1px solid #F3F4F6",
+    transition: "background 0.2s ease",
+  },
+  td: {
+    padding: "20px",
+    fontSize: 14,
+    verticalAlign: "top",
   },
 
-  actionsRow: { display: "inline-flex", gap: 8 },
-
-  actionBtn: {
-    padding: "8px 10px",
-    borderRadius: 12,
+  // Table Content
+  bookingNumber: {
+    fontWeight: "700",
+    color: "#2563EB",
     cursor: "pointer",
-    fontWeight: 900,
+    marginBottom: 4,
+  },
+  bookingDate: {
     fontSize: 12,
-    border: "1px solid #E5E7EB",
+    color: "#9CA3AF",
+  },
+  serviceName: {
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  servicePrice: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#059669",
+  },
+  personName: {
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  personEmail: {
+    fontSize: 12,
+    color: "#6B7280",
+  },
+  na: {
+    color: "#9CA3AF",
+  },
+  scheduleDate: {
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  scheduleTime: {
+    fontSize: 13,
+    color: "#6B7280",
   },
 
-  empty: {
-    padding: 18,
-    textAlign: "center",
+  // Badge
+  badge: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "6px 12px",
+    borderRadius: 8,
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "capitalize",
+    border: "none",
+  },
+
+  // Buttons
+  viewButton: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "8px 14px",
+    border: "none",
+    background: "linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)",
+    borderRadius: 8,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    cursor: "pointer",
+    outline: "none",
+  },
+
+  // Loading State
+  loadingState: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 60,
+    gap: 16,
+    color: "#6B7280",
+  },
+  spinner: {
+    width: 40,
+    height: 40,
+    border: "4px solid #E5E7EB",
+    borderTopColor: "#3B82F6",
+    borderRadius: "50%",
+    animation: "spin 0.8s linear infinite",
+  },
+
+  // Empty State
+  emptyState: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 60,
+  },
+  emptyIconContainer: {
+    marginBottom: 20,
+  },
+  emptyTitle: {
+    margin: "0 0 8px 0",
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  emptyText: {
+    margin: 0,
+    fontSize: 14,
+    color: "#6B7280",
   },
 };
+
+const modalOverlayStyle: React.CSSProperties = {
+  position: "fixed",
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: "rgba(0, 0, 0, 0.5)",
+  display: "grid",
+  placeItems: "center",
+  zIndex: 1000,
+  padding: 20,
+};
+
+const modalStyle: React.CSSProperties = {
+  background: "#fff",
+  borderRadius: 16,
+  width: "100%",
+  maxWidth: 1000,
+  maxHeight: "90vh",
+  padding: 24,
+  boxShadow: "0 20px 40px rgba(0, 0, 0, 0.2)",
+  overflow: "hidden",
+  display: "flex",
+  flexDirection: "column",
+};
+
+// Add animations
+const styleSheet = document.createElement("style");
+styleSheet.textContent = `
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  
+  input:focus, select:focus {
+    border-color: #3B82F6 !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+  }
+  
+  button:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+  
+  button:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  
+  tr:hover {
+    background: #F9FAFB;
+  }
+`;
+document.head.appendChild(styleSheet);
