@@ -2,9 +2,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { api } from "../../src/lib/api";
+import { useMemo, useState } from "react";
+import useSWR from "swr";
 import { useAuth } from "../../src/context/AuthContext";
+import { fetcher } from "../../src/lib/swr-fetcher";
+import  DashboardSkeleton  from '../../src/components/ui/DashboardSkeleton'
 
 type DashboardStats = {
   total_users: number;
@@ -13,46 +15,130 @@ type DashboardStats = {
   revenue: number;
 };
 
+// Define the response type
+type DashboardStatsResponse = {
+  data?: DashboardStats;
+  total_users?: number;
+  active_services?: number;
+  total_bookings?: number;
+  revenue?: number;
+  error?: string;
+};
+
+function normalizeStats(data: DashboardStatsResponse | undefined): DashboardStats {
+  const stats = data?.data || data;
+  
+  return {
+    total_users: Number(stats?.total_users ?? 0),
+    active_services: Number(stats?.active_services ?? 0),
+    total_bookings: Number(stats?.total_bookings ?? 0),
+    revenue: Number(stats?.revenue ?? 0),
+  };
+}
+
 export default function AdminDashboardPage() {
   const { isAdmin } = useAuth();
 
-  const [stats, setStats] = useState<DashboardStats>({
-    total_users: 0,
-    active_services: 0,
-    total_bookings: 0,
-    revenue: 0,
-  });
+  // Use SWR to fetch dashboard stats
+  const {
+    data: rawStats,
+    error: statsError,
+    isLoading: statsLoading,
+    mutate: mutateStats,
+  } = useSWR<DashboardStatsResponse>(
+    isAdmin ? '/admin/dashboard/stats' : null,
+    fetcher,
+    {
+      revalidateOnFocus: true,
+      dedupingInterval: 30000, // 30 seconds
+      errorRetryCount: 3,
+      refreshInterval: 60000, // Auto-refresh every 60 seconds (optional)
+    }
+  );
 
-  useEffect(() => {
-    if (!isAdmin) return;
+  // Normalize the stats data
+  const stats = useMemo(() => normalizeStats(rawStats), [rawStats]);
 
-    let mounted = true;
+  // Handle manual refresh
+  const handleRefreshStats = async () => {
+    await mutateStats();
+  };
 
-    const loadStats = async () => {
-      try {
-        const res = await api.get("/admin/dashboard/stats");
-        if (!mounted) return;
+  // If loading, show skeleton
+  if (statsLoading) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.statsGrid}>
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} style={styles.statCardSkeleton}>
+              <div style={styles.skeletonHeader}>
+                <div style={styles.skeletonIcon} />
+                <div style={styles.skeletonTrend} />
+              </div>
+              <div style={styles.skeletonValue} />
+              <div style={styles.skeletonTitle} />
+            </div>
+          ))}
+        </div>
+        <DashboardSkeleton />
+      </div>
+    );
+  }
 
-        setStats({
-          total_users: Number(res.data?.total_users ?? 0),
-          active_services: Number(res.data?.active_services ?? 0),
-          total_bookings: Number(res.data?.total_bookings ?? 0),
-          revenue: Number(res.data?.revenue ?? 0),
-        });
-      } catch {
-        // keep existing values; optionally log
-      }
-    };
-
-    loadStats();
-
-    return () => {
-      mounted = false;
-    };
-  }, [isAdmin]);
+  // If there's an error
+  if (statsError) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.errorContainer}>
+          <div style={styles.errorIcon}>⚠️</div>
+          <h2 style={styles.errorTitle}>Failed to Load Dashboard</h2>
+          <p style={styles.errorMessage}>
+            {statsError.message || "Unable to fetch dashboard statistics. Please try again."}
+          </p>
+          <button 
+            onClick={handleRefreshStats}
+            style={styles.retryButton}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.page}>
+      {/* Dashboard Header with Refresh Button */}
+      <div style={styles.dashboardHeader}>
+        <div>
+          <h1 style={styles.dashboardTitle}>Admin Dashboard</h1>
+          <p style={styles.dashboardSubtitle}>
+            Overview of platform performance and management
+          </p>
+        </div>
+        <div style={styles.headerActions}>
+          <button
+            onClick={handleRefreshStats}
+            style={styles.refreshButton}
+            title="Refresh data"
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path
+                d="M19 10a9 9 0 11-2.636-6.364M19 4v4h-4m-7 6a9 9 0 012.636-6.364M1 16v-4h4"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Refresh
+          </button>
+          <div style={styles.lastUpdated}>
+            Last updated: Just now
+          </div>
+        </div>
+      </div>
+
       {/* Stats Grid */}
       <div style={styles.statsGrid}>
         <StatCard
@@ -71,6 +157,7 @@ export default function AdminDashboardPage() {
           }
           gradient="linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)"
           trend="+12%"
+          loading={statsLoading}
         />
         <StatCard
           title="Active Services"
@@ -88,6 +175,7 @@ export default function AdminDashboardPage() {
           }
           gradient="linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%)"
           trend="+8%"
+          loading={statsLoading}
         />
         <StatCard
           title="Total Bookings"
@@ -105,6 +193,7 @@ export default function AdminDashboardPage() {
           }
           gradient="linear-gradient(135deg, #10B981 0%, #059669 100%)"
           trend="+24%"
+          loading={statsLoading}
         />
         <StatCard
           title="Revenue"
@@ -122,6 +211,7 @@ export default function AdminDashboardPage() {
           }
           gradient="linear-gradient(135deg, #F59E0B 0%, #D97706 100%)"
           trend="+15%"
+          loading={statsLoading}
         />
       </div>
 
@@ -233,20 +323,35 @@ export default function AdminDashboardPage() {
   );
 }
 
-// Stats Card Component
+// Updated StatCard Component with loading state
 function StatCard({
   title,
   value,
   icon,
   gradient,
   trend,
+  loading = false,
 }: {
   title: string;
   value: string;
   icon: React.ReactNode;
   gradient: string;
   trend?: string;
+  loading?: boolean;
 }) {
+  if (loading) {
+    return (
+      <div style={styles.statCard}>
+        <div style={styles.statCardHeader}>
+          <div style={{ ...styles.statIcon, background: "#E5E7EB" }}></div>
+          <div style={styles.skeletonTrend}></div>
+        </div>
+        <div style={styles.skeletonStatValue}></div>
+        <div style={styles.skeletonStatTitle}></div>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.statCard}>
       <div style={styles.statCardHeader}>
@@ -272,7 +377,7 @@ function StatCard({
   );
 }
 
-// Action Card Component
+// ActionCard Component remains the same
 function ActionCard({
   title,
   description,
@@ -357,6 +462,53 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 0,
   },
 
+  // Dashboard Header
+  dashboardHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: "2rem",
+  },
+
+  dashboardTitle: {
+    fontSize: "1.875rem",
+    fontWeight: "bold",
+    color: "#111827",
+    margin: 0,
+  },
+
+  dashboardSubtitle: {
+    fontSize: "0.875rem",
+    color: "#6B7280",
+    marginTop: "0.25rem",
+  },
+
+  headerActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: "1rem",
+  },
+
+  refreshButton: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+    padding: "0.5rem 1rem",
+    backgroundColor: "#3B82F6",
+    color: "white",
+    border: "none",
+    borderRadius: "0.5rem",
+    cursor: "pointer",
+    fontWeight: 500,
+    fontSize: "0.875rem",
+    transition: "background-color 0.2s",
+  },
+
+  lastUpdated: {
+    fontSize: "0.75rem",
+    color: "#6B7280",
+  },
+
   // Stats Grid
   statsGrid: {
     display: "grid",
@@ -372,6 +524,14 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid #F3F4F6",
     boxShadow: "0 4px 16px rgba(0, 0, 0, 0.04)",
     transition: "all 0.2s ease",
+  },
+
+  statCardSkeleton: {
+    background: "#FFFFFF",
+    borderRadius: 16,
+    padding: 24,
+    border: "1px solid #F3F4F6",
+    boxShadow: "0 4px 16px rgba(0, 0, 0, 0.04)",
   },
 
   statCardHeader: {
@@ -411,16 +571,111 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: "-0.02em",
   },
 
+  skeletonStatValue: {
+    width: "120px",
+    height: "36px",
+    backgroundColor: "#E5E7EB",
+    borderRadius: "0.375rem",
+    marginBottom: "0.5rem",
+  },
+
   statTitle: {
     fontSize: 14,
     color: "#6B7280",
     fontWeight: "600",
   },
 
+  skeletonStatTitle: {
+    width: "80px",
+    height: "20px",
+    backgroundColor: "#E5E7EB",
+    borderRadius: "0.375rem",
+  },
+
+  // Skeleton Styles
+  skeletonHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    marginBottom: "1rem",
+  },
+
+  skeletonIcon: {
+    width: "48px",
+    height: "48px",
+    borderRadius: "12px",
+    backgroundColor: "#E5E7EB",
+  },
+
+  skeletonTrend: {
+    width: "60px",
+    height: "24px",
+    backgroundColor: "#E5E7EB",
+    borderRadius: "9999px",
+  },
+
+  skeletonValue: {
+    width: "120px",
+    height: "36px",
+    backgroundColor: "#E5E7EB",
+    borderRadius: "0.375rem",
+    marginBottom: "0.5rem",
+  },
+
+  skeletonTitle: {
+    width: "80px",
+    height: "20px",
+    backgroundColor: "#E5E7EB",
+    borderRadius: "0.375rem",
+  },
+
+  // Error Styles
+  errorContainer: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "3rem",
+    backgroundColor: "white",
+    borderRadius: "0.75rem",
+    boxShadow: "0 4px 16px rgba(0, 0, 0, 0.06)",
+  },
+
+  errorIcon: {
+    fontSize: "3rem",
+    marginBottom: "1rem",
+  },
+
+  errorTitle: {
+    fontSize: "1.25rem",
+    fontWeight: "bold",
+    color: "#111827",
+    marginBottom: "0.5rem",
+  },
+
+  errorMessage: {
+    fontSize: "0.875rem",
+    color: "#6B7280",
+    textAlign: "center",
+    marginBottom: "1.5rem",
+    maxWidth: "400px",
+  },
+
+  retryButton: {
+    padding: "0.5rem 1.5rem",
+    backgroundColor: "#3B82F6",
+    color: "white",
+    border: "none",
+    borderRadius: "0.5rem",
+    cursor: "pointer",
+    fontWeight: 500,
+    fontSize: "0.875rem",
+  },
+
   // Section
   sectionHeader: {
     marginBottom: 20,
   },
+  
   sectionTitle: {
     margin: 0,
     fontSize: 20,
@@ -428,6 +683,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#111827",
     marginBottom: 4,
   },
+  
   sectionSubtitle: {
     margin: 0,
     fontSize: 14,
@@ -477,7 +733,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: "800",
     color: "#92400E",
     letterSpacing: "0.03em",
-    textTransform: "uppercase" as const,
+    textTransform: "uppercase",
   },
 
   actionTitle: {

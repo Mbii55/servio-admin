@@ -1,9 +1,11 @@
 // app/admin/users/page.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { api } from "../../../src/lib/api";
+import React, { useMemo } from "react";
+import useSWR, { mutate } from "swr";
 import { useAuth } from "../../../src/context/AuthContext";
+import { fetcher } from "../../../src/lib/swr-fetcher";
+import DashboardSkeleton from '../../../src/components/ui/DashboardSkeleton';
 
 type UserRole = "customer" | "provider" | "admin";
 type UserStatus = "active" | "inactive" | "suspended";
@@ -23,24 +25,62 @@ interface User {
   updated_at: string;
 }
 
+type UsersResponse = {
+  users?: User[];
+  data?: User[];
+  error?: string;
+};
+
 export default function AdminUsersPage() {
   const { isAdmin } = useAuth();
 
-  const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filters, setFilters] = useState({
+  const [searchTerm, setSearchTerm] = React.useState("");
+  const [filters, setFilters] = React.useState({
     role: "all" as "all" | UserRole,
     status: "all" as "all" | UserStatus,
   });
 
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [showUserModal, setShowUserModal] = useState(false);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [selectedUser, setSelectedUser] = React.useState<User | null>(null);
+  const [showUserModal, setShowUserModal] = React.useState(false);
+  const [actionLoading, setActionLoading] = React.useState<string | null>(null);
+  const [brokenImages, setBrokenImages] = React.useState<Record<string, boolean>>({});
 
-  const [brokenImages, setBrokenImages] = useState<Record<string, boolean>>({});
+  // Build SWR key exactly like your original params
+  const swrKey = useMemo(() => {
+    if (!isAdmin) return null;
+
+    const params = new URLSearchParams();
+    if (searchTerm.trim()) params.append("search", searchTerm.trim());
+    if (filters.role !== "all") params.append("role", filters.role);
+    if (filters.status !== "all") params.append("status", filters.status);
+
+    const qs = params.toString();
+    return `/users${qs ? `?${qs}` : ""}`;
+  }, [isAdmin, searchTerm, filters.role, filters.status]);
+
+  const {
+    data: rawData,
+    error,
+    isLoading,
+    mutate: mutateUsers,
+  } = useSWR<UsersResponse>(swrKey, fetcher, {
+    revalidateOnFocus: true,
+    dedupingInterval: 30000,
+    refreshInterval: 60000,
+    errorRetryCount: 3,
+  });
+
+  const users: User[] = useMemo(() => {
+    const list = rawData?.users ?? rawData?.data ?? [];
+    return Array.isArray(list) ? list : [];
+  }, [rawData]);
+
+  const stats = useMemo(() => ({
+    total: users.length,
+    customers: users.filter(u => u.role === 'customer').length,
+    providers: users.filter(u => u.role === 'provider').length,
+    active: users.filter(u => u.status === 'active').length,
+  }), [users]);
 
   const displayName = (u: User) =>
     `${u.first_name || ""} ${u.last_name || ""}`.trim() || u.email;
@@ -58,60 +98,26 @@ export default function AdminUsersPage() {
     return u.profile_image || null;
   };
 
-  const loadUsers = async () => {
-    if (!isAdmin) return;
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const params = new URLSearchParams();
-      if (searchTerm.trim()) params.append("search", searchTerm.trim());
-      if (filters.role !== "all") params.append("role", filters.role);
-      if (filters.status !== "all") params.append("status", filters.status);
-
-      const qs = params.toString();
-      const res = await api.get(`/users${qs ? `?${qs}` : ""}`);
-
-      const list: User[] = res.data?.users ?? res.data ?? [];
-      setUsers(Array.isArray(list) ? list : []);
-    } catch (err: any) {
-      setError(err?.response?.data?.error || err?.message || "Failed to load users");
-      setUsers([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!isAdmin) return;
-    loadUsers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin, filters.role, filters.status]);
-
-  useEffect(() => {
-    if (!isAdmin) return;
-    const timer = setTimeout(() => loadUsers(), 300);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchTerm, isAdmin]);
+  const loadUsers = () => mutateUsers();
 
   const toggleStatus = async (user: User) => {
-    if (
-      !confirm(
-        `Are you sure you want to ${user.status === "active" ? "suspend" : "activate"} this user?`
-      )
-    )
-      return;
+    if (!confirm(`Are you sure you want to ${user.status === "active" ? "suspend" : "activate"} this user?`)) return;
 
+    const nextStatus: UserStatus = user.status === "active" ? "suspended" : "active";
     setActionLoading(user.id);
+
     try {
-      const nextStatus: UserStatus = user.status === "active" ? "suspended" : "active";
-      await api.patch(`/users/${user.id}/status`, { status: nextStatus });
+      await fetch(`/api/users/${user.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
 
       await loadUsers();
 
-      if (selectedUser?.id === user.id) setSelectedUser({ ...user, status: nextStatus });
+      if (selectedUser?.id === user.id) {
+        setSelectedUser({ ...user, status: nextStatus });
+      }
     } catch (err: any) {
       alert(err?.response?.data?.error || "Failed to update user status");
     } finally {
@@ -123,11 +129,19 @@ export default function AdminUsersPage() {
     if (!confirm(`Change this user's role to ${newRole}?`)) return;
 
     setActionLoading(userId);
+
     try {
-      await api.patch(`/users/${userId}/role`, { role: newRole });
+      await fetch(`/api/users/${userId}/role`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: newRole }),
+      });
+
       await loadUsers();
 
-      if (selectedUser?.id === userId) setSelectedUser({ ...selectedUser, role: newRole });
+      if (selectedUser?.id === userId) {
+        setSelectedUser({ ...selectedUser!, role: newRole });
+      }
     } catch (err: any) {
       alert(err?.response?.data?.error || "Failed to update user role");
     } finally {
@@ -142,12 +156,41 @@ export default function AdminUsersPage() {
 
   if (!isAdmin) return null;
 
-  const stats = {
-    total: users.length,
-    customers: users.filter(u => u.role === 'customer').length,
-    providers: users.filter(u => u.role === 'provider').length,
-    active: users.filter(u => u.status === 'active').length,
-  };
+  // Loading state with DashboardSkeleton
+  if (isLoading) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.statsGrid}>
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} style={styles.statCardSkeleton}>
+              <div style={styles.skeletonIcon} />
+              <div style={styles.skeletonValue} />
+              <div style={styles.skeletonTitle} />
+            </div>
+          ))}
+        </div>
+        <DashboardSkeleton />
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.errorContainer}>
+          <div style={styles.errorIcon}>Warning</div>
+          <h2 style={styles.errorTitle}>Failed to Load Users</h2>
+          <p style={styles.errorMessage}>
+            {error.message || "Unable to fetch users. Please try again."}
+          </p>
+          <button onClick={loadUsers} style={styles.retryButton}>
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -183,10 +226,13 @@ export default function AdminUsersPage() {
           title="Providers"
           value={stats.providers.toLocaleString()}
           icon={
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
               <path
-                d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4zM18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z"
-                fill="white"
+                d="M3 9l1.5-4.5A2 2 0 016.4 3h11.2a2 2 0 011.9 1.5L21 9M3 9h18M3 9v9a2 2 0 002 2h4v-5h6v5h4a2 2 0 002-2V9"
+                stroke="white"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               />
             </svg>
           }
@@ -228,17 +274,9 @@ export default function AdminUsersPage() {
               style={styles.searchInput}
             />
             {searchTerm && (
-              <button
-                onClick={() => setSearchTerm("")}
-                style={styles.clearButton}
-              >
+              <button onClick={() => setSearchTerm("")} style={styles.clearButton}>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path
-                    d="M12 4L4 12M4 4l8 8"
-                    stroke="#6B7280"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
+                  <path d="M12 4L4 12M4 4l8 8" stroke="#6B7280" strokeWidth="2" strokeLinecap="round" />
                 </svg>
               </button>
             )}
@@ -248,18 +286,13 @@ export default function AdminUsersPage() {
           <div style={styles.filterItem}>
             <label style={styles.filterLabel}>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ marginRight: 6 }}>
-                <path
-                  d="M8 8a3 3 0 100-6 3 3 0 000 6zM3 14a5 5 0 0110 0H3z"
-                  fill="#6B7280"
-                />
+                <path d="M8 8a3 3 0 100-6 3 3 0 000 6zM3 14a5 5 0 0110 0H3z" fill="#6B7280" />
               </svg>
               Role
             </label>
             <select
               value={filters.role}
-              onChange={(e) =>
-                setFilters({ ...filters, role: e.target.value as "all" | UserRole })
-              }
+              onChange={(e) => setFilters({ ...filters, role: e.target.value as "all" | UserRole })}
               style={styles.select}
             >
               <option value="all">All Roles</option>
@@ -279,9 +312,7 @@ export default function AdminUsersPage() {
             </label>
             <select
               value={filters.status}
-              onChange={(e) =>
-                setFilters({ ...filters, status: e.target.value as "all" | UserStatus })
-              }
+              onChange={(e) => setFilters({ ...filters, status: e.target.value as "all" | UserStatus })}
               style={styles.select}
             >
               <option value="all">All Status</option>
@@ -291,14 +322,14 @@ export default function AdminUsersPage() {
             </select>
           </div>
 
-          {/* Refresh Button */}
+          {/* Refresh Button - Kept exactly as original */}
           <button
             onClick={loadUsers}
-            disabled={loading}
+            disabled={isLoading}
             style={{
               ...styles.refreshButton,
-              opacity: loading ? 0.5 : 1,
-              cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: isLoading ? 0.5 : 1,
+              cursor: isLoading ? 'not-allowed' : 'pointer',
             }}
           >
             <svg
@@ -307,7 +338,7 @@ export default function AdminUsersPage() {
               viewBox="0 0 20 20"
               fill="none"
               style={{
-                transform: loading ? 'rotate(180deg)' : 'rotate(0deg)',
+                transform: isLoading ? 'rotate(180deg)' : 'rotate(0deg)',
                 transition: 'transform 0.3s ease',
               }}
             >
@@ -332,19 +363,19 @@ export default function AdminUsersPage() {
       </div>
 
       {/* Error Message */}
-      {error && (
+      {error && !isLoading && (
         <div style={styles.errorAlert}>
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <circle cx="10" cy="10" r="9" fill="#FEE2E2" />
             <path d="M10 6v4M10 14h.01" stroke="#DC2626" strokeWidth="2" strokeLinecap="round" />
           </svg>
-          <span>{error}</span>
+          <span>{error.message || "Failed to load users"}</span>
         </div>
       )}
 
       {/* Users Table */}
       <div style={styles.tableContainer}>
-        {loading ? (
+        {isLoading ? (
           <div style={styles.loadingState}>
             <div style={styles.spinner} />
             <p>Loading users...</p>
@@ -353,22 +384,13 @@ export default function AdminUsersPage() {
           <div style={styles.emptyState}>
             <div style={styles.emptyIconContainer}>
               <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                <path
-                  d="M24 44c11.046 0 20-8.954 20-20S35.046 4 24 4 4 12.954 4 24s8.954 20 20 20z"
-                  stroke="#D1D5DB"
-                  strokeWidth="2"
-                />
-                <path
-                  d="M16 20a4 4 0 108 0 4 4 0 00-8 0zM32 20a4 4 0 108 0 4 4 0 00-8 0zM24 36c-4 0-7-2-8-5h16c-1 3-4 5-8 5z"
-                  fill="#D1D5DB"
-                />
+                <path d="M24 44c11.046 0 20-8.954 20-20S35.046 4 24 4 4 12.954 4 24s8.954 20 20 20z" stroke="#D1D5DB" strokeWidth="2" />
+                <path d="M16 20a4 4 0 108 0 4 4 0 00-8 0zM32 20a4 4 0 108 0 4 4 0 00-8 0zM24 36c-4 0-7-2-8-5h16c-1 3-4 5-8 5z" fill="#D1D5DB" />
               </svg>
             </div>
             <h3 style={styles.emptyTitle}>No users found</h3>
             <p style={styles.emptyText}>
-              {searchTerm
-                ? "Try adjusting your search or filters"
-                : "No users have been created yet"}
+              {searchTerm ? "Try adjusting your search or filters" : "No users have been created yet"}
             </p>
           </div>
         ) : (
@@ -387,10 +409,8 @@ export default function AdminUsersPage() {
               <tbody>
                 {users.map((user) => {
                   const img = getUserImage(user);
-
                   return (
                     <tr key={user.id} style={styles.tableRow}>
-                      {/* User Info */}
                       <td style={styles.tableCell}>
                         <div style={styles.userInfo}>
                           <Avatar
@@ -398,90 +418,43 @@ export default function AdminUsersPage() {
                             alt={displayName(user)}
                             initials={initials(user)}
                             shape={user.role === "provider" ? "rounded" : "circle"}
-                            onError={() => setBrokenImages((p) => ({ ...p, [user.id]: true }))}
+                            onError={() => setBrokenImages(p => ({ ...p, [user.id]: true }))}
                           />
-
                           <div>
                             <div style={styles.userName}>{displayName(user)}</div>
-
                             {user.role === "provider" && user.business_name && (
                               <div style={styles.businessName}>
                                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                                  <path
-                                    d="M2 3a1 1 0 011-1h6a1 1 0 011 1v1H2V3zM10 5H2v4a1 1 0 001 1h6a1 1 0 001-1V5z"
-                                    fill="#6B7280"
-                                  />
+                                  <path d="M2 3a1 1 0 011-1h6a1 1 0 011 1v1H2V3zM10 5H2v4a1 1 0 001 1h6a1 1 0 001-1V5z" fill="#6B7280" />
                                 </svg>
                                 {user.business_name}
                               </div>
                             )}
-
-                            <div style={styles.userId}>
-                              ID: {user.id.substring(0, 8)}...
-                            </div>
+                            <div style={styles.userId}>ID: {user.id.substring(0, 8)}...</div>
                           </div>
                         </div>
                       </td>
-
-                      {/* Contact Info */}
                       <td style={styles.tableCell}>
                         <div>
                           <div style={styles.email}>{user.email}</div>
-                          {user.phone && (
-                            <div style={styles.phone}>{user.phone}</div>
-                          )}
+                          {user.phone && <div style={styles.phone}>{user.phone}</div>}
                         </div>
                       </td>
-
-                      {/* Role */}
+                      <td style={styles.tableCell}><RoleBadge role={user.role} /></td>
+                      <td style={styles.tableCell}><StatusBadge status={user.status} /></td>
                       <td style={styles.tableCell}>
-                        <RoleBadge role={user.role} />
+                        <div style={styles.date}>{new Date(user.created_at).toLocaleDateString()}</div>
+                        <div style={styles.time}>{new Date(user.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
                       </td>
-
-                      {/* Status */}
-                      <td style={styles.tableCell}>
-                        <StatusBadge status={user.status} />
-                      </td>
-
-                      {/* Created Date */}
-                      <td style={styles.tableCell}>
-                        <div style={styles.date}>
-                          {new Date(user.created_at).toLocaleDateString()}
-                        </div>
-                        <div style={styles.time}>
-                          {new Date(user.created_at).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </div>
-                      </td>
-
-                      {/* Actions */}
                       <td style={styles.tableCell}>
                         <div style={styles.actions}>
-                          <button
-                            onClick={() => viewUserDetails(user)}
-                            style={styles.viewButton}
-                          >
+                          <button onClick={() => viewUserDetails(user)} style={styles.viewButton}>
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                              <path
-                                d="M1 8s3-5 7-5 7 5 7 5-3 5-7 5-7-5-7-5z"
-                                stroke="currentColor"
-                                strokeWidth="1.5"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              />
-                              <circle
-                                cx="8"
-                                cy="8"
-                                r="2"
-                                stroke="currentColor"
-                                strokeWidth="1.5"
-                              />
+                              <path d="M1 8s3-5 7-5 7 5 7 5-3 5-7 5-7-5-7-5z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                              <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.5" />
                             </svg>
                             View
                           </button>
-
                           {user.role !== "admin" && (
                             <>
                               <button
@@ -489,19 +462,12 @@ export default function AdminUsersPage() {
                                 disabled={actionLoading === user.id}
                                 style={{
                                   ...styles.statusButton,
-                                  ...(user.status === "active"
-                                    ? styles.suspendButton
-                                    : styles.activateButton),
+                                  ...(user.status === "active" ? styles.suspendButton : styles.activateButton),
                                   opacity: actionLoading === user.id ? 0.5 : 1,
                                 }}
                               >
-                                {actionLoading === user.id
-                                  ? "..."
-                                  : user.status === "active"
-                                  ? "Suspend"
-                                  : "Activate"}
+                                {actionLoading === user.id ? "..." : user.status === "active" ? "Suspend" : "Activate"}
                               </button>
-
                               <select
                                 value={user.role}
                                 onChange={(e) => changeUserRole(user.id, e.target.value as UserRole)}
