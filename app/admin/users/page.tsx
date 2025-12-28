@@ -6,6 +6,7 @@ import useSWR, { mutate } from "swr";
 import { useAuth } from "../../../src/context/AuthContext";
 import { fetcher } from "../../../src/lib/swr-fetcher";
 import DashboardSkeleton from '../../../src/components/ui/DashboardSkeleton';
+import { api } from "../../../src/lib/api";
 
 type UserRole = "customer" | "provider" | "admin";
 type UserStatus = "active" | "inactive" | "suspended";
@@ -100,54 +101,48 @@ export default function AdminUsersPage() {
 
   const loadUsers = () => mutateUsers();
 
-  const toggleStatus = async (user: User) => {
-    if (!confirm(`Are you sure you want to ${user.status === "active" ? "suspend" : "activate"} this user?`)) return;
+const toggleStatus = async (user: User) => {
+  if (!confirm(`Are you sure you want to ${user.status === "active" ? "suspend" : "activate"} this user?`)) return;
 
-    const nextStatus: UserStatus = user.status === "active" ? "suspended" : "active";
-    setActionLoading(user.id);
+  const nextStatus: UserStatus = user.status === "active" ? "suspended" : "active";
+  setActionLoading(user.id);
 
-    try {
-      await fetch(`/api/users/${user.id}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus }),
-      });
+  try {
+    // Use api client instead of fetch
+    await api.patch(`/users/${user.id}/status`, { status: nextStatus });
 
-      await loadUsers();
+    await loadUsers();
 
-      if (selectedUser?.id === user.id) {
-        setSelectedUser({ ...user, status: nextStatus });
-      }
-    } catch (err: any) {
-      alert(err?.response?.data?.error || "Failed to update user status");
-    } finally {
-      setActionLoading(null);
+    if (selectedUser?.id === user.id) {
+      setSelectedUser({ ...user, status: nextStatus });
     }
-  };
+  } catch (err: any) {
+    alert(err?.response?.data?.error || err?.message || "Failed to update user status");
+  } finally {
+    setActionLoading(null);
+  }
+};
 
-  const changeUserRole = async (userId: string, newRole: UserRole) => {
-    if (!confirm(`Change this user's role to ${newRole}?`)) return;
+const changeUserRole = async (userId: string, newRole: UserRole) => {
+  if (!confirm(`Change this user's role to ${newRole}?`)) return;
 
-    setActionLoading(userId);
+  setActionLoading(userId);
 
-    try {
-      await fetch(`/api/users/${userId}/role`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: newRole }),
-      });
+  try {
+    // Use api client instead of fetch
+    await api.patch(`/users/${userId}/role`, { role: newRole });
 
-      await loadUsers();
+    await loadUsers();
 
-      if (selectedUser?.id === userId) {
-        setSelectedUser({ ...selectedUser!, role: newRole });
-      }
-    } catch (err: any) {
-      alert(err?.response?.data?.error || "Failed to update user role");
-    } finally {
-      setActionLoading(null);
+    if (selectedUser?.id === userId) {
+      setSelectedUser({ ...selectedUser!, role: newRole });
     }
-  };
+  } catch (err: any) {
+    alert(err?.response?.data?.error || err?.message || "Failed to update user role");
+  } finally {
+    setActionLoading(null);
+  }
+};
 
   const viewUserDetails = (user: User) => {
     setSelectedUser(user);
