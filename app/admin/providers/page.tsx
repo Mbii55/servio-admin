@@ -5,6 +5,8 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../../../src/context/AuthContext"
 import { api } from '../../../src/lib/api';
 
+type VerificationStatus = "pending" | "approved" | "rejected" | "resubmitted";
+
 interface Provider {
   id: string;
   business_name: string;
@@ -17,6 +19,10 @@ interface Provider {
   email: string;
   first_name: string;
   last_name: string;
+  display_id?: string; // ✅ Added
+  verification_status: VerificationStatus; // ✅ Added
+  verified_at?: string | null; // ✅ Added
+  rejected_at?: string | null; // ✅ Added
 }
 
 export default function ProvidersPage() {
@@ -51,9 +57,6 @@ export default function ProvidersPage() {
   const handleViewProfile = async (provider: Provider) => {
     setSelectedProvider(provider);
     setShowProfileModal(true);
-    
-    // We already have all the data we need from the provider list
-    // No need to make an additional API call for the modal
   };
 
   const handleEditCommission = (provider: Provider) => {
@@ -102,12 +105,40 @@ export default function ProvidersPage() {
     }
   };
 
+  // ✅ Navigate to verifications page
+  const handleViewVerification = (provider: Provider) => {
+    window.location.href = `/admin/verifications?search=${provider.display_id || provider.email}`;
+  };
+
   const filteredProviders = providers.filter((provider) =>
     provider.business_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     provider.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     provider.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     provider.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // ✅ Helper function for verification badge
+  const getVerificationBadge = (status: VerificationStatus) => {
+    const styles = {
+      pending: "bg-yellow-100 text-yellow-700",
+      approved: "bg-green-100 text-green-700",
+      rejected: "bg-red-100 text-red-700",
+      resubmitted: "bg-blue-100 text-blue-700",
+    };
+
+    const labels = {
+      pending: "Pending",
+      approved: "Verified",
+      rejected: "Rejected",
+      resubmitted: "Resubmitted",
+    };
+
+    return (
+      <span className={`px-3 py-1 rounded-lg text-xs font-semibold ${styles[status]}`}>
+        {labels[status]}
+      </span>
+    );
+  };
 
   if (loading) {
     return (
@@ -125,7 +156,7 @@ export default function ProvidersPage() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Service Providers</h1>
-          <p className="text-gray-600">Manage provider profiles and commission rates</p>
+          <p className="text-gray-600">Manage provider profiles, verification, and commission rates</p>
         </div>
 
         {/* Success Message */}
@@ -160,7 +191,7 @@ export default function ProvidersPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -175,33 +206,52 @@ export default function ProvidersPage() {
             </div>
           </div>
 
+          {/* ✅ Updated: Verified Providers stat */}
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Active Providers</p>
+                <p className="text-sm text-gray-600 mb-1">Verified</p>
                 <p className="text-2xl font-bold text-green-600">
-                  {providers.filter(p => p.is_active).length}
+                  {providers.filter(p => p.verification_status === 'approved').length}
                 </p>
               </div>
               <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
                 <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                 </svg>
               </div>
             </div>
           </div>
 
+          {/* ✅ New: Pending Verification stat */}
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Inactive Providers</p>
-                <p className="text-2xl font-bold text-red-600">
-                  {providers.filter(p => !p.is_active).length}
+                <p className="text-sm text-gray-600 mb-1">Pending Review</p>
+                <p className="text-2xl font-bold text-yellow-600">
+                  {providers.filter(p => p.verification_status === 'pending' || p.verification_status === 'resubmitted').length}
                 </p>
               </div>
-              <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+              <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
+                <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          {/* ✅ Updated: Active Accounts stat */}
+          <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 mb-1">Active Accounts</p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {providers.filter(p => p.is_active).length}
+                </p>
+              </div>
+              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
             </div>
@@ -224,13 +274,13 @@ export default function ProvidersPage() {
                     Location
                   </th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    Verification
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    Account
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                     Commission
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Actions
                   </th>
                 </tr>
               </thead>
@@ -243,7 +293,11 @@ export default function ProvidersPage() {
                   </tr>
                 ) : (
                   filteredProviders.map((provider) => (
-                    <tr key={provider.id} className="hover:bg-gray-50 transition-colors">
+                    <tr 
+                      key={provider.id} 
+                      onClick={() => handleViewProfile(provider)}
+                      className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    >
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -268,12 +322,27 @@ export default function ProvidersPage() {
                         </p>
                       </td>
                       <td className="px-6 py-4">
+                        {getVerificationBadge(provider.verification_status)}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-3 py-1 rounded-lg text-sm font-medium ${
+                          provider.is_active
+                            ? "bg-blue-100 text-blue-700"
+                            : "bg-gray-100 text-gray-700"
+                        }`}>
+                          {provider.is_active ? "Active" : "Suspended"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
-                          <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-lg text-sm font-semibold">
+                          <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-lg text-sm font-semibold">
                             {parseFloat(provider.commission_rate).toFixed(1)}%
                           </span>
                           <button
-                            onClick={() => handleEditCommission(provider)}
+                            onClick={(e) => {
+                              e.stopPropagation(); // Prevent row click
+                              handleEditCommission(provider);
+                            }}
                             className="p-1 hover:bg-gray-100 rounded transition-colors"
                             title="Edit commission rate"
                           >
@@ -282,26 +351,6 @@ export default function ProvidersPage() {
                             </svg>
                           </button>
                         </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <button
-                          onClick={() => handleToggleActive(provider)}
-                          className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                            provider.is_active
-                              ? "bg-green-100 text-green-700 hover:bg-green-200"
-                              : "bg-red-100 text-red-700 hover:bg-red-200"
-                          }`}
-                        >
-                          {provider.is_active ? "Active" : "Inactive"}
-                        </button>
-                      </td>
-                      <td className="px-6 py-4">
-                        <button
-                          onClick={() => handleViewProfile(provider)}
-                          className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all duration-200 shadow-sm hover:shadow-md text-sm font-medium"
-                        >
-                          View Profile
-                        </button>
                       </td>
                     </tr>
                   ))
@@ -312,7 +361,7 @@ export default function ProvidersPage() {
         </div>
       </div>
 
-      {/* Profile Modal */}
+      {/* Profile Modal - Updated with all actions */}
       {showProfileModal && selectedProvider && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
@@ -349,13 +398,13 @@ export default function ProvidersPage() {
                     <p className="font-medium text-gray-900">{selectedProvider.email}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-600 mb-1">Status</p>
+                    <p className="text-sm text-gray-600 mb-1">Account Status</p>
                     <span className={`inline-flex px-3 py-1 rounded-lg text-sm font-medium ${
                       selectedProvider.is_active
-                        ? "bg-green-100 text-green-700"
-                        : "bg-red-100 text-red-700"
+                        ? "bg-blue-100 text-blue-700"
+                        : "bg-gray-100 text-gray-700"
                     }`}>
-                      {selectedProvider.is_active ? "Active" : "Inactive"}
+                      {selectedProvider.is_active ? "Active" : "Suspended"}
                     </span>
                   </div>
                   <div>
@@ -364,6 +413,48 @@ export default function ProvidersPage() {
                       {new Date(selectedProvider.created_at).toLocaleDateString()}
                     </p>
                   </div>
+                </div>
+              </div>
+
+              {/* Verification Status Section */}
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                  Verification Status
+                </h3>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="text-sm text-gray-600 mb-2">Current Status</p>
+                      {getVerificationBadge(selectedProvider.verification_status)}
+                    </div>
+                    {selectedProvider.verification_status !== 'approved' && (
+                      <button
+                        onClick={() => handleViewVerification(selectedProvider)}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                      >
+                        Review Documents
+                      </button>
+                    )}
+                  </div>
+                  {selectedProvider.verified_at && (
+                    <div>
+                      <p className="text-sm text-gray-600 mb-1">Verified On</p>
+                      <p className="font-medium text-gray-900">
+                        {new Date(selectedProvider.verified_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  )}
+                  {selectedProvider.rejected_at && (
+                    <div>
+                      <p className="text-sm text-gray-600 mb-1">Rejected On</p>
+                      <p className="font-medium text-gray-900">
+                        {new Date(selectedProvider.rejected_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -392,16 +483,16 @@ export default function ProvidersPage() {
               {/* Financial Information */}
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   Financial Settings
                 </h3>
-                <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg p-4 border border-blue-100">
+                <div className="bg-gradient-to-br from-orange-50 to-purple-50 rounded-lg p-4 border border-orange-100">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-gray-600 mb-1">Commission Rate</p>
-                      <p className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
+                      <p className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-orange-600 to-purple-600">
                         {parseFloat(selectedProvider.commission_rate).toFixed(1)}%
                       </p>
                     </div>
@@ -410,7 +501,7 @@ export default function ProvidersPage() {
                         setShowProfileModal(false);
                         handleEditCommission(selectedProvider);
                       }}
-                      className="px-4 py-2 bg-white text-blue-600 rounded-lg hover:bg-blue-50 transition-colors text-sm font-medium shadow-sm"
+                      className="px-4 py-2 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-colors text-sm font-medium shadow-sm"
                     >
                       Edit Rate
                     </button>
@@ -418,11 +509,34 @@ export default function ProvidersPage() {
                 </div>
               </div>
             </div>
+
+            {/* Modal Footer with Actions */}
+            <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 flex gap-3">
+              <button
+                onClick={() => setShowProfileModal(false)}
+                className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-white transition-colors font-medium"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  handleToggleActive(selectedProvider);
+                  setShowProfileModal(false);
+                }}
+                className={`flex-1 px-4 py-3 rounded-lg font-semibold transition-all shadow-sm hover:shadow-md ${
+                  selectedProvider.is_active
+                    ? "bg-red-600 text-white hover:bg-red-700"
+                    : "bg-green-600 text-white hover:bg-green-700"
+                }`}
+              >
+                {selectedProvider.is_active ? "Suspend Account" : "Activate Account"}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Commission Edit Modal */}
+      {/* Commission Edit Modal - Unchanged */}
       {showCommissionModal && selectedProvider && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full">

@@ -101,48 +101,27 @@ export default function AdminUsersPage() {
 
   const loadUsers = () => mutateUsers();
 
-const toggleStatus = async (user: User) => {
-  if (!confirm(`Are you sure you want to ${user.status === "active" ? "suspend" : "activate"} this user?`)) return;
+  const toggleStatus = async (user: User) => {
+    if (!confirm(`Are you sure you want to ${user.status === "active" ? "suspend" : "activate"} this user?`)) return;
 
-  const nextStatus: UserStatus = user.status === "active" ? "suspended" : "active";
-  setActionLoading(user.id);
+    const nextStatus: UserStatus = user.status === "active" ? "suspended" : "active";
+    setActionLoading(user.id);
 
-  try {
-    // Use api client instead of fetch
-    await api.patch(`/users/${user.id}/status`, { status: nextStatus });
+    try {
+      // Use api client instead of fetch
+      await api.patch(`/users/${user.id}/status`, { status: nextStatus });
 
-    await loadUsers();
+      await loadUsers();
 
-    if (selectedUser?.id === user.id) {
-      setSelectedUser({ ...user, status: nextStatus });
+      if (selectedUser?.id === user.id) {
+        setSelectedUser({ ...user, status: nextStatus });
+      }
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err?.message || "Failed to update user status");
+    } finally {
+      setActionLoading(null);
     }
-  } catch (err: any) {
-    alert(err?.response?.data?.error || err?.message || "Failed to update user status");
-  } finally {
-    setActionLoading(null);
-  }
-};
-
-const changeUserRole = async (userId: string, newRole: UserRole) => {
-  if (!confirm(`Change this user's role to ${newRole}?`)) return;
-
-  setActionLoading(userId);
-
-  try {
-    // Use api client instead of fetch
-    await api.patch(`/users/${userId}/role`, { role: newRole });
-
-    await loadUsers();
-
-    if (selectedUser?.id === userId) {
-      setSelectedUser({ ...selectedUser!, role: newRole });
-    }
-  } catch (err: any) {
-    alert(err?.response?.data?.error || err?.message || "Failed to update user role");
-  } finally {
-    setActionLoading(null);
-  }
-};
+  };
 
   const viewUserDetails = (user: User) => {
     setSelectedUser(user);
@@ -451,33 +430,17 @@ const changeUserRole = async (userId: string, newRole: UserRole) => {
                             View
                           </button>
                           {user.role !== "admin" && (
-                            <>
-                              <button
-                                onClick={() => toggleStatus(user)}
-                                disabled={actionLoading === user.id}
-                                style={{
-                                  ...styles.statusButton,
-                                  ...(user.status === "active" ? styles.suspendButton : styles.activateButton),
-                                  opacity: actionLoading === user.id ? 0.5 : 1,
-                                }}
-                              >
-                                {actionLoading === user.id ? "..." : user.status === "active" ? "Suspend" : "Activate"}
-                              </button>
-                              <select
-                                value={user.role}
-                                onChange={(e) => changeUserRole(user.id, e.target.value as UserRole)}
-                                disabled={actionLoading === user.id}
-                                style={{
-                                  ...styles.roleSelect,
-                                  opacity: actionLoading === user.id ? 0.5 : 1,
-                                  display: 'none',
-                                }}
-                              >
-                                <option value="customer">Customer</option>
-                                <option value="provider">Provider</option>
-                                <option value="admin">Admin</option>
-                              </select>
-                            </>
+                            <button
+                              onClick={() => toggleStatus(user)}
+                              disabled={actionLoading === user.id}
+                              style={{
+                                ...styles.statusButton,
+                                ...(user.status === "active" ? styles.suspendButton : styles.activateButton),
+                                opacity: actionLoading === user.id ? 0.5 : 1,
+                              }}
+                            >
+                              {actionLoading === user.id ? "..." : user.status === "active" ? "Suspend" : "Activate"}
+                            </button>
                           )}
                         </div>
                       </td>
@@ -624,21 +587,6 @@ const changeUserRole = async (userId: string, newRole: UserRole) => {
                   </svg>
                   {selectedUser.status === "active" ? "Suspend User" : "Activate User"}
                 </button>
-
-                <select
-                  value={selectedUser.role}
-                  onChange={(e) => changeUserRole(selectedUser.id, e.target.value as UserRole)}
-                  disabled={actionLoading === selectedUser.id}
-                  style={{
-                    ...styles.modalSelect,
-                    opacity: actionLoading === selectedUser.id ? 0.5 : 1,
-                    display: 'none',
-                  }}
-                >
-                  <option value="customer">Customer</option>
-                  <option value="provider">Provider</option>
-                  <option value="admin">Admin</option>
-                </select>
               </div>
             )}
           </div>
