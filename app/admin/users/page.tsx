@@ -13,6 +13,7 @@ type UserStatus = "active" | "inactive" | "suspended";
 
 interface User {
   id: string;
+  display_id: string;
   email: string;
   role: UserRole;
   status: UserStatus;
@@ -404,7 +405,7 @@ export default function AdminUsersPage() {
                                 {user.business_name}
                               </div>
                             )}
-                            <div style={styles.userId}>ID: {user.id.substring(0, 8)}...</div>
+                            <div style={styles.userId}>ID: {user.display_id}</div>
                           </div>
                         </div>
                       </td>
@@ -518,7 +519,7 @@ export default function AdminUsersPage() {
                     <DetailItem label="Last Name" value={selectedUser.last_name} />
                     <DetailItem label="Email" value={selectedUser.email} />
                     <DetailItem label="Phone" value={selectedUser.phone || "Not provided"} />
-                    <DetailItem label="User ID" value={selectedUser.id.substring(0, 12) + "..."} />
+                    <DetailItem label="User ID" value={selectedUser.display_id} />
                     {selectedUser.role === "provider" && (
                       <DetailItem label="Business Name" value={selectedUser.business_name || "N/A"} />
                     )}

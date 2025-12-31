@@ -109,7 +109,7 @@ export const Sidebar = () => {
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="text-base font-bold text-white leading-tight truncate">
-              Servio Admin
+              Call To Clean Admin
             </h1>
             <p className="text-xs text-gray-400 mt-0.5">Management Portal</p>
           </div>

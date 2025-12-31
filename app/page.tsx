@@ -87,7 +87,7 @@ export default function LoginPage() {
               </svg>
               <input
                 type="email"
-                placeholder="admin@servio.com"
+                placeholder="admin@calltoclean.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -211,7 +211,7 @@ export default function LoginPage() {
             />
             <path d="M8 6v4M8 11v1" stroke="#9CA3AF" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
-          <span>Admin access only • Servio Platform</span>
+          <span>Admin access only • Call To Clean Platform</span>
         </div>
       </div>
     </div>

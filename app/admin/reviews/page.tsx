@@ -25,7 +25,6 @@ interface Review {
   created_at: string;
   updated_at: string;
 
-  // ✅ Admin moderation fields (if backend includes them)
   is_visible?: boolean;
   is_flagged?: boolean;
   flag_reason?: string | null;
@@ -54,10 +53,8 @@ export default function AdminReviewsPage() {
   const [selectedReview, setSelectedReview] = React.useState<Review | null>(null);
   const [showModal, setShowModal] = React.useState(false);
 
-  // ✅ action loading per review id
   const [actionLoadingId, setActionLoadingId] = React.useState<string | null>(null);
 
-  // SWR keys
   const reviewsKey = isAdmin ? "/reviews/admin/all" : null;
   const statsKey = isAdmin ? "/reviews/admin/stats" : null;
 
@@ -84,16 +81,13 @@ export default function AdminReviewsPage() {
     return Array.isArray(reviewsData?.reviews) ? reviewsData.reviews : [];
   }, [reviewsData]);
 
-  // Client-side filtering
   const filteredReviews = useMemo(() => {
     let filtered = [...reviews];
 
-    // Rating filter
     if (ratingFilter !== "all") {
       filtered = filtered.filter((r) => r.rating === ratingFilter);
     }
 
-    // Search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       filtered = filtered.filter(
@@ -114,7 +108,6 @@ export default function AdminReviewsPage() {
 
   const stats = useMemo(() => {
     if (searchQuery || ratingFilter !== "all") {
-      // Calculate stats for filtered results
       const total = filteredReviews.length;
       const avgRating =
         total > 0 ? filteredReviews.reduce((sum, r) => sum + r.rating, 0) / total : 0;
@@ -157,14 +150,10 @@ export default function AdminReviewsPage() {
     setShowModal(true);
   };
 
-  // -----------------------------
-  // ✅ Admin actions (moderation)
-  // -----------------------------
   const safeErrorMessage = (e: any) =>
     e?.response?.data?.error || e?.response?.data?.message || e?.message || "Something went wrong";
 
   const refreshAfterAction = async (updatedMaybe?: Partial<Review> | null) => {
-    // Update modal view if open
     if (updatedMaybe && selectedReview) {
       setSelectedReview({ ...selectedReview, ...updatedMaybe });
     }
@@ -181,7 +170,6 @@ export default function AdminReviewsPage() {
       setActionLoadingId(review.id);
       await api.delete(`/reviews/admin/${review.id}`);
 
-      // Close modal if same review
       if (selectedReview?.id === review.id) {
         setShowModal(false);
         setSelectedReview(null);
@@ -208,15 +196,12 @@ export default function AdminReviewsPage() {
   };
 
   const handleToggleFlag = async (review: Review) => {
-    // If currently flagged -> unflag (no reason needed)
-    // If not flagged -> ask reason
     let reason: string | undefined;
-
     const isFlagged = !!review.is_flagged;
 
     if (!isFlagged) {
       const input = window.prompt("Flag reason (required):", "");
-      if (input === null) return; // cancelled
+      if (input === null) return;
       reason = input.trim();
       if (!reason) {
         alert("Flag reason is required.");
@@ -261,7 +246,7 @@ export default function AdminReviewsPage() {
   if (error && !isLoading) {
     return (
       <div style={styles.errorContainer}>
-        <div style={styles.errorIcon}>⚠️</div>
+        <div style={styles.errorIcon}>Warning</div>
         <h2 style={styles.errorTitle}>Failed to Load Reviews</h2>
         <p style={styles.errorMessage}>{error.message || "Unable to fetch reviews. Please try again."}</p>
         <button onClick={() => mutateReviews()} style={styles.retryButton}>
@@ -273,53 +258,89 @@ export default function AdminReviewsPage() {
 
   const actionBusy = (id: string) => actionLoadingId === id;
 
+  const truncateComment = (comment: string | null | undefined) => {
+    if (!comment) return <span style={{ color: "#9CA3AF", fontStyle: "italic" }}>No comment</span>;
+    if (comment.length <= 80) return comment;
+    return `${comment.substring(0, 80)}...`;
+  };
+
+  const StarIcon = ({ filled }: { filled: boolean }) => (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill={filled ? "#F59E0B" : "#E5E7EB"}>
+      <path d="M8 2l1.5 4.5h4.5l-3.5 2.5 1.5 4.5L8 11l-3.5 2.5 1.5-4.5-3.5-2.5h4.5z" />
+    </svg>
+  );
+
+  const RatingDisplay = ({ rating }: { rating: number }) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <StarIcon filled />
+      <span style={{ fontWeight: "600", color: "#111827" }}>{rating}.0</span>
+    </div>
+  );
+
   return (
     <>
-      {/* Stats Cards */}
+      {/* Simplified & Smaller Stats Cards */}
       <div style={styles.statsGrid}>
         <StatCard
           title="Total Reviews"
           value={stats.total.toLocaleString()}
-          icon="📝"
-          gradient="linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%)"
+          icon={
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          }
         />
         <StatCard
           title="Average Rating"
           value={stats.average_rating.toFixed(1)}
-          icon="⭐"
-          gradient="linear-gradient(135deg, #F59E0B 0%, #D97706 100%)"
-          subtitle={`out of 5.0`}
+          subtitle="out of 5.0"
+          icon={
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+            </svg>
+          }
         />
         <StatCard
           title="5 Stars"
           value={stats.five_star.toLocaleString()}
-          icon="🌟"
-          gradient="linear-gradient(135deg, #10B981 0%, #059669 100%)"
+          icon={
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="#10B981">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+            </svg>
+          }
         />
         <StatCard
           title="4 Stars"
           value={stats.four_star.toLocaleString()}
-          icon="✨"
-          gradient="linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)"
+          icon={
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="#3B82F6">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+            </svg>
+          }
         />
         <StatCard
           title="3 Stars"
           value={stats.three_star.toLocaleString()}
-          icon="⭐"
-          gradient="linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)"
+          icon={
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="#6366F1">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+            </svg>
+          }
         />
         <StatCard
           title="1-2 Stars"
           value={(stats.two_star + stats.one_star).toLocaleString()}
-          icon="📉"
-          gradient="linear-gradient(135deg, #EF4444 0%, #DC2626 100%)"
+          icon={
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2">
+              <path d="M12 2l-3 7-7 1 5 5-1 7 6-3 6 3-1-7 5-5-7-1-3-7z" />
+            </svg>
+          }
         />
       </div>
 
       {/* Filters */}
       <div style={styles.filterPanel}>
         <div style={styles.filterGrid}>
-          {/* Search */}
           <div style={{ ...styles.searchContainer, flex: "1 1 400px" }}>
             <div style={styles.searchIconWrapper}>
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -339,18 +360,12 @@ export default function AdminReviewsPage() {
             {searchQuery && (
               <button onClick={() => setSearchQuery("")} style={styles.clearButton}>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path
-                    d="M12 4L4 12M4 4l8 8"
-                    stroke="#6B7280"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
+                  <path d="M12 4L4 12M4 4l8 8" stroke="#6B7280" strokeWidth="2" strokeLinecap="round" />
                 </svg>
               </button>
             )}
           </div>
 
-          {/* Rating Filter */}
           <div style={styles.filterItem}>
             <label style={styles.filterLabel}>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ marginRight: 6 }}>
@@ -375,7 +390,6 @@ export default function AdminReviewsPage() {
             </select>
           </div>
 
-          {/* Refresh Button */}
           <button
             onClick={() => mutateReviews()}
             disabled={isLoading}
@@ -395,42 +409,19 @@ export default function AdminReviewsPage() {
                 transition: "transform 0.3s ease",
               }}
             >
-              <path
-                d="M4 2v6h6M16 18v-6h-6"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M16.91 8A8 8 0 103.04 12.91"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+              <path d="M4 2v6h6M16 18v-6h-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M16.91 8A8 8 0 103.04 12.91" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             Refresh
           </button>
         </div>
 
-        {/* Search results info */}
         {(searchQuery || ratingFilter !== "all") && (
           <div style={styles.searchResultsInfo}>
             <span style={{ color: "#6B7280", fontSize: 14 }}>
               Showing {filteredReviews.length} of {reviews.length} reviews
-              {searchQuery && (
-                <span>
-                  {" "}
-                  matching "<strong>{searchQuery}</strong>"
-                </span>
-              )}
-              {ratingFilter !== "all" && (
-                <span>
-                  {" "}
-                  with <strong>{ratingFilter} stars</strong>
-                </span>
-              )}
+              {searchQuery && <span> matching "<strong>{searchQuery}</strong>"</span>}
+              {ratingFilter !== "all" && <span> with <strong>{ratingFilter} stars</strong></span>}
             </span>
             <button
               onClick={() => {
@@ -450,7 +441,9 @@ export default function AdminReviewsPage() {
         {filteredReviews.length === 0 ? (
           <div style={styles.emptyState}>
             <div style={styles.emptyIconContainer}>
-              <span style={{ fontSize: 48 }}>⭐</span>
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="1.5">
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+              </svg>
             </div>
             <h3 style={styles.emptyTitle}>
               {searchQuery || ratingFilter !== "all" ? "No matching reviews found" : "No reviews yet"}
@@ -483,12 +476,16 @@ export default function AdminReviewsPage() {
                   <th style={styles.tableHeader}>Rating</th>
                   <th style={styles.tableHeader}>Comment</th>
                   <th style={styles.tableHeader}>Date</th>
-                  <th style={styles.tableHeader}>Actions</th>
+                  <th style={styles.tableHeader}>View</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredReviews.map((review) => (
-                  <tr key={review.id} style={styles.tableRow}>
+                  <tr
+                    key={review.id}
+                    style={{ ...styles.tableRow, cursor: "pointer" }}
+                    onClick={() => handleViewDetails(review)}
+                  >
                     <td style={styles.tableCell}>
                       <div>
                         <div style={styles.userName}>{review.customer_name}</div>
@@ -509,7 +506,7 @@ export default function AdminReviewsPage() {
                     </td>
 
                     <td style={styles.tableCell}>
-                      <RatingStars rating={review.rating} />
+                      <RatingDisplay rating={review.rating} />
                       {(review.is_flagged || review.is_visible === false) && (
                         <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap" }}>
                           {review.is_visible === false && <span style={styles.badgeMuted}>Hidden</span>}
@@ -519,60 +516,17 @@ export default function AdminReviewsPage() {
                     </td>
 
                     <td style={styles.tableCell}>
-                      <div style={styles.commentPreview}>
-                        {review.comment || (
-                          <span style={{ color: "#9CA3AF", fontStyle: "italic" }}>No comment</span>
-                        )}
-                      </div>
+                      <div style={styles.commentPreview}>{truncateComment(review.comment)}</div>
                     </td>
 
                     <td style={styles.tableCell}>
                       <div style={styles.date}>{formatDate(review.created_at)}</div>
                     </td>
 
-                    <td style={styles.tableCell}>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <button onClick={() => handleViewDetails(review)} style={styles.viewButton}>
-                          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                            <path
-                              d="M1 8s3-5 7-5 7 5 7 5-3 5-7 5-7-5-7-5z"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                            <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.5" />
-                          </svg>
-                          View
-                        </button>
-
-                        <button
-                          onClick={() => handleToggleVisibility(review)}
-                          style={styles.secondaryButton}
-                          disabled={actionBusy(review.id)}
-                          title="Hide/Show review"
-                        >
-                          {actionBusy(review.id) ? "..." : review.is_visible === false ? "Show" : "Hide"}
-                        </button>
-
-                        <button
-                          onClick={() => handleToggleFlag(review)}
-                          style={review.is_flagged ? styles.warnButton : styles.secondaryButton}
-                          disabled={actionBusy(review.id)}
-                          title="Flag/Unflag review"
-                        >
-                          {actionBusy(review.id) ? "..." : review.is_flagged ? "Unflag" : "Flag"}
-                        </button>
-
-                        <button
-                          onClick={() => handleDeleteReview(review)}
-                          style={styles.dangerButton}
-                          disabled={actionBusy(review.id)}
-                          title="Delete review"
-                        >
-                          {actionBusy(review.id) ? "..." : "Delete"}
-                        </button>
-                      </div>
+                    <td style={styles.tableCell} onClick={(e) => e.stopPropagation()}>
+                      <button style={styles.viewButton} onClick={() => handleViewDetails(review)}>
+                        View →
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -584,49 +538,25 @@ export default function AdminReviewsPage() {
 
       {/* Review Details Modal */}
       {showModal && selectedReview && (
-        <div
-          style={styles.modalOverlay}
-          onClick={() => {
-            setShowModal(false);
-            setSelectedReview(null);
-          }}
-        >
+        <div style={styles.modalOverlay} onClick={() => { setShowModal(false); setSelectedReview(null); }}>
           <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-            {/* Modal Header */}
             <div style={styles.modalHeader}>
               <div>
                 <h2 style={styles.modalTitle}>Review Details</h2>
                 <div style={styles.modalSubtitle}>Booking #{selectedReview.booking_number}</div>
               </div>
-
-              <button
-                onClick={() => {
-                  setShowModal(false);
-                  setSelectedReview(null);
-                }}
-                style={styles.closeButton}
-              >
+              <button onClick={() => { setShowModal(false); setSelectedReview(null); }} style={styles.closeButton}>
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M18 6L6 18M6 6l12 12"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
+                  <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                 </svg>
               </button>
             </div>
 
-            {/* Modal Body */}
             <div style={styles.modalBody}>
-              {/* Rating Section */}
               <div style={styles.modalSection}>
                 <h3 style={styles.modalSectionTitle}>
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path
-                      d="M8 2l1.5 4.5h4.5l-3.5 2.5 1.5 4.5L8 11l-3.5 2.5 1.5-4.5-3.5-2.5h4.5z"
-                      fill="#F59E0B"
-                    />
+                    <path d="M8 2l1.5 4.5h4.5l-3.5 2.5 1.5 4.5L8 11l-3.5 2.5 1.5-4.5-3.5-2.5h4.5z" fill="#F59E0B" />
                   </svg>
                   Rating
                 </h3>
@@ -647,7 +577,6 @@ export default function AdminReviewsPage() {
                 </div>
               </div>
 
-              {/* Customer Info */}
               <div style={styles.modalSection}>
                 <h3 style={styles.modalSectionTitle}>
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -661,15 +590,10 @@ export default function AdminReviewsPage() {
                 </div>
               </div>
 
-              {/* Provider Info */}
               <div style={styles.modalSection}>
                 <h3 style={styles.modalSectionTitle}>
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path
-                      d="M8 2a3 3 0 100 6 3 3 0 000-6zM2 14a6 6 0 0112 0"
-                      stroke="#6B7280"
-                      strokeWidth="1.5"
-                    />
+                    <path d="M8 2a3 3 0 100 6 3 3 0 000-6zM2 14a6 6 0 0112 0" stroke="#6B7280" strokeWidth="1.5" />
                   </svg>
                   Provider
                 </h3>
@@ -679,15 +603,10 @@ export default function AdminReviewsPage() {
                 </div>
               </div>
 
-              {/* Service Info */}
               <div style={styles.modalSection}>
                 <h3 style={styles.modalSectionTitle}>
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path
-                      d="M2 4a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V4z"
-                      stroke="#6B7280"
-                      strokeWidth="1.5"
-                    />
+                    <path d="M2 4a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V4z" stroke="#6B7280" strokeWidth="1.5" />
                   </svg>
                   Service
                 </h3>
@@ -697,15 +616,10 @@ export default function AdminReviewsPage() {
                 </div>
               </div>
 
-              {/* Comment Section */}
               <div style={{ ...styles.modalSection, gridColumn: "1 / -1" }}>
                 <h3 style={styles.modalSectionTitle}>
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path
-                      d="M2 3a1 1 0 011-1h10a1 1 0 011 1v7a1 1 0 01-1 1H8l-3 3v-3H3a1 1 0 01-1-1V3z"
-                      stroke="#6B7280"
-                      strokeWidth="1.5"
-                    />
+                    <path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v7a1 1 0 01-1 1H8l-3 3v-3H3a1 1 0 01-1-1V3z" stroke="#6B7280" strokeWidth="1.5" />
                   </svg>
                   Comment
                 </h3>
@@ -716,34 +630,21 @@ export default function AdminReviewsPage() {
                 </div>
               </div>
 
-              {/* Date Info */}
-              <div
-                style={{
-                  gridColumn: "1 / -1",
-                  textAlign: "center",
-                  paddingTop: 16,
-                  borderTop: "1px solid #E5E7EB",
-                }}
-              >
+              <div style={{ gridColumn: "1 / -1", textAlign: "center", paddingTop: 16, borderTop: "1px solid #E5E7EB" }}>
                 <div style={{ fontSize: 12, color: "#6B7280" }}>
                   Reviewed on {formatDate(selectedReview.created_at)}
                 </div>
               </div>
             </div>
 
-            {/* Modal Footer */}
             <div style={styles.modalFooter}>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
                 <button
                   onClick={() => handleToggleVisibility(selectedReview)}
                   style={styles.secondaryButton}
                   disabled={actionBusy(selectedReview.id)}
                 >
-                  {actionBusy(selectedReview.id)
-                    ? "..."
-                    : selectedReview.is_visible === false
-                    ? "Show Review"
-                    : "Hide Review"}
+                  {actionBusy(selectedReview.id) ? "..." : selectedReview.is_visible === false ? "Show Review" : "Hide Review"}
                 </button>
 
                 <button
@@ -763,10 +664,7 @@ export default function AdminReviewsPage() {
                 </button>
 
                 <button
-                  onClick={() => {
-                    setShowModal(false);
-                    setSelectedReview(null);
-                  }}
+                  onClick={() => { setShowModal(false); setSelectedReview(null); }}
                   style={styles.modalCloseButton}
                 >
                   Close
@@ -786,19 +684,17 @@ function StatCard({
   title,
   value,
   icon,
-  gradient,
   subtitle,
 }: {
   title: string;
   value: string;
-  icon: string;
-  gradient: string;
+  icon: React.ReactNode;
   subtitle?: string;
 }) {
   return (
     <div style={styles.statCard}>
-      <div style={{ ...styles.statIcon, background: gradient }}>
-        <span style={{ fontSize: 24 }}>{icon}</span>
+      <div style={styles.statIcon}>
+        {icon}
       </div>
       <div style={styles.statValue}>{value}</div>
       {subtitle && <div style={styles.statSubtitle}>{subtitle}</div>}
@@ -845,76 +741,79 @@ function DetailItem({ label, value }: { label: string; value: string }) {
 /* ----------------------------- Styles ----------------------------- */
 
 const styles: Record<string, React.CSSProperties> = {
-  // Stats
   statsGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: 20,
+    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+    gap: 16,
     marginBottom: 32,
   },
   statCard: {
     background: "#FFFFFF",
-    borderRadius: 16,
-    padding: 20,
-    border: "1px solid #F3F4F6",
-    boxShadow: "0 4px 16px rgba(0, 0, 0, 0.04)",
+    borderRadius: 12,
+    padding: 16,
+    border: "1px solid #E5E7EB",
+    boxShadow: "0 2px 8px rgba(0, 0, 0, 0.05)",
     display: "flex",
     flexDirection: "column",
-    gap: 12,
+    gap: 8,
+    alignItems: "center",
+    textAlign: "center",
   },
   statIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    background: "#F3F4F6",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+    color: "#374151",
   },
   statValue: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: "800",
     color: "#111827",
-    letterSpacing: "-0.02em",
   },
   statSubtitle: {
     fontSize: 12,
     color: "#6B7280",
-    marginTop: -8,
+    marginTop: -6,
   },
   statTitle: {
-    fontSize: 14,
-    color: "#6B7280",
+    fontSize: 13,
+    color: "#4B5563",
     fontWeight: "600",
   },
   statCardSkeleton: {
     background: "#F3F4F6",
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 12,
+    padding: 16,
     display: "flex",
     flexDirection: "column",
-    gap: 12,
+    gap: 8,
   },
   skeletonIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 8,
     background: "#E5E7EB",
   },
   skeletonValue: {
-    width: "60%",
-    height: 28,
+    width: "70%",
+    height: 24,
     borderRadius: 4,
     background: "#E5E7EB",
+    alignSelf: "center",
   },
   skeletonTitle: {
     width: "80%",
-    height: 14,
+    height: 13,
     borderRadius: 4,
     background: "#E5E7EB",
+    alignSelf: "center",
   },
 
-  // Filters
+  // Rest of styles remain unchanged (filters, table, modal, etc.)
   filterPanel: {
     background: "#FFFFFF",
     border: "1px solid #F3F4F6",
@@ -1024,7 +923,6 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 6,
   },
 
-  // Table
   tableContainer: {
     background: "#FFFFFF",
     border: "1px solid #F3F4F6",
@@ -1035,7 +933,7 @@ const styles: Record<string, React.CSSProperties> = {
   table: {
     width: "100%",
     borderCollapse: "collapse",
-    minWidth: 1200,
+    minWidth: 1000,
   },
   tableHeader: {
     padding: "16px 20px",
@@ -1050,7 +948,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   tableRow: {
     borderTop: "1px solid #F3F4F6",
-    transition: "background 0.2s ease",
+    transition: "background 0.3s ease",
   },
   tableCell: {
     padding: "20px",
@@ -1086,10 +984,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "monospace",
   },
   commentPreview: {
-    maxWidth: 250,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+    maxWidth: 300,
     color: "#374151",
   },
   date: {
@@ -1098,100 +993,59 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#111827",
   },
   viewButton: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    padding: "8px 14px",
-    border: "none",
+    padding: "8px 16px",
     background: "linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)",
+    color: "#FFFFFF",
+    border: "none",
     borderRadius: 8,
     fontSize: 13,
     fontWeight: "700",
-    color: "#FFFFFF",
     cursor: "pointer",
     transition: "all 0.2s ease",
-    boxShadow: "0 2px 8px rgba(59, 130, 246, 0.3)",
   },
 
-  // Empty states
+  // ... (rest of styles unchanged – empty state, modal, etc.)
   emptyState: {
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    padding: 60,
+    padding: 80,
   },
   emptyIconContainer: {
-    marginBottom: 20,
+    marginBottom: 24,
   },
   emptyTitle: {
     margin: "0 0 8px 0",
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "700",
     color: "#111827",
   },
   emptyText: {
     margin: 0,
-    fontSize: 14,
+    fontSize: 15,
     color: "#6B7280",
   },
   clearFiltersButton: {
-    marginTop: 16,
-    padding: "10px 20px",
+    marginTop: 20,
+    padding: "12px 24px",
     border: "2px solid #3B82F6",
     background: "white",
-    borderRadius: 8,
+    borderRadius: 10,
     fontSize: 14,
     fontWeight: "600",
     color: "#3B82F6",
     cursor: "pointer",
   },
 
-  // Error state
-  errorContainer: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 60,
-  },
-  errorIcon: {
-    fontSize: 48,
-    marginBottom: 16,
-  },
-  errorTitle: {
-    margin: "0 0 8px 0",
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#991B1B",
-  },
-  errorMessage: {
-    margin: "0 0 24px 0",
-    fontSize: 14,
-    color: "#6B7280",
-  },
-  retryButton: {
-    padding: "12px 24px",
-    border: "none",
-    background: "linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)",
-    borderRadius: 12,
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#FFFFFF",
-    cursor: "pointer",
-    boxShadow: "0 4px 12px rgba(59, 130, 246, 0.3)",
-  },
-
-  // Modal
   modalOverlay: {
     position: "fixed",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    background: "rgba(0, 0, 0, 0.5)",
-    backdropFilter: "blur(4px)",
+    background: "rgba(0, 0, 0, 0.6)",
+    backdropFilter: "blur(8px)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -1200,38 +1054,38 @@ const styles: Record<string, React.CSSProperties> = {
   },
   modal: {
     background: "#FFFFFF",
-    borderRadius: 20,
+    borderRadius: 24,
     width: "100%",
-    maxWidth: 900,
-    maxHeight: "90vh",
+    maxWidth: 1000,
+    maxHeight: "92vh",
     display: "flex",
     flexDirection: "column",
-    boxShadow: "0 20px 60px rgba(0, 0, 0, 0.3)",
+    boxShadow: "0 30px 80px rgba(0, 0, 0, 0.35)",
     overflow: "hidden",
   },
   modalHeader: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    padding: 24,
+    padding: 32,
     borderBottom: "1px solid #F3F4F6",
   },
   modalTitle: {
-    margin: "0 0 4px 0",
-    fontSize: 20,
+    margin: "0 0 6px 0",
+    fontSize: 24,
     fontWeight: "800",
     color: "#111827",
   },
   modalSubtitle: {
-    fontSize: 14,
+    fontSize: 15,
     color: "#6B7280",
   },
   closeButton: {
     background: "#F3F4F6",
     border: "none",
-    width: 36,
-    height: 36,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 10,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -1242,76 +1096,127 @@ const styles: Record<string, React.CSSProperties> = {
   modalBody: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr",
-    gap: 24,
-    padding: 24,
+    gap: 32,
+    padding: 32,
     overflowY: "auto",
   },
   modalSection: {
     background: "#F9FAFB",
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 16,
+    padding: 20,
   },
   modalSectionTitle: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
-    margin: "0 0 16px 0",
-    fontSize: 14,
+    gap: 10,
+    margin: "0 0 20px 0",
+    fontSize: 15,
     fontWeight: "800",
     color: "#374151",
   },
   detailsGrid: {
     display: "grid",
     gridTemplateColumns: "1fr",
-    gap: 12,
+    gap: 16,
   },
   detailLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "700",
     color: "#6B7280",
-    marginBottom: 4,
+    marginBottom: 6,
     textTransform: "uppercase",
-    letterSpacing: "0.05em",
+    letterSpacing: "0.06em",
   },
   detailValue: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "600",
     color: "#111827",
   },
   commentBox: {
-    padding: 16,
+    padding: 20,
     background: "#FFFFFF",
     border: "1px solid #E5E7EB",
-    borderRadius: 8,
-    fontSize: 14,
-    lineHeight: 1.6,
+    borderRadius: 12,
+    fontSize: 15,
+    lineHeight: 1.7,
     color: "#374151",
-    minHeight: 100,
+    minHeight: 120,
   },
   modalFooter: {
-    padding: 24,
+    padding: 32,
     borderTop: "1px solid #F3F4F6",
     display: "flex",
-    justifyContent: "flex-end",
+    justifyContent: "center",
   },
   modalCloseButton: {
-    padding: "12px 24px",
+    padding: "12px 28px",
     border: "none",
     background: "#F3F4F6",
     borderRadius: 12,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "700",
     color: "#374151",
     cursor: "pointer",
     transition: "all 0.2s ease",
   },
+
+  badgeMuted: {
+    background: "#9CA3AF",
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "600",
+    padding: "4px 10px",
+    borderRadius: 8,
+  },
+  badgeDanger: {
+    background: "#EF4444",
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "600",
+    padding: "4px 10px",
+    borderRadius: 8,
+  },
+
+  secondaryButton: {
+    padding: "12px 20px",
+    border: "none",
+    background: "#6B7280",
+    color: "#FFFFFF",
+    borderRadius: 10,
+    fontSize: 14,
+    fontWeight: "600",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+  },
+  warnButton: {
+    padding: "12px 20px",
+    border: "none",
+    background: "#F97316",
+    color: "#FFFFFF",
+    borderRadius: 10,
+    fontSize: 14,
+    fontWeight: "600",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+  },
+  dangerButton: {
+    padding: "12px 20px",
+    border: "none",
+    background: "#EF4444",
+    color: "#FFFFFF",
+    borderRadius: 10,
+    fontSize: 14,
+    fontWeight: "600",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+  },
 };
 
-// Add hover effects
 const styleSheet = document.createElement("style");
 styleSheet.textContent = `
   button:hover:not(:disabled) {
-    transform: translateY(-1px);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.12);
   }
   
   button:active:not(:disabled) {
@@ -1319,12 +1224,12 @@ styleSheet.textContent = `
   }
   
   tr:hover {
-    background: #F9FAFB;
+    background: #F0F9FF !important;
   }
   
   input:focus, select:focus {
     border-color: #3B82F6 !important;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15) !important;
   }
 `;
 document.head.appendChild(styleSheet);

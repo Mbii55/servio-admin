@@ -1,7 +1,6 @@
-// app/admin/verifications/page.tsx
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import useSWR from "swr";
 import { useAuth } from "../../../src/context/AuthContext";
 import { fetcher } from "../../../src/lib/swr-fetcher";
@@ -53,24 +52,23 @@ interface StatsResponse {
 export default function AdminVerificationsPage() {
   const { isAdmin } = useAuth();
 
-  const [searchQuery, setSearchQuery] = React.useState("");
-  const [statusFilter, setStatusFilter] = React.useState<VerificationStatus | "all">("all");
-  const [selectedVerification, setSelectedVerification] = React.useState<Verification | null>(null);
-  const [showModal, setShowModal] = React.useState(false);
-  const [rejectionReason, setRejectionReason] = React.useState("");
-  const [isApproving, setIsApproving] = React.useState(false);
-  const [isRejecting, setIsRejecting] = React.useState(false);
-  const [brokenLogos, setBrokenLogos] = React.useState<Record<string, boolean>>({});
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<VerificationStatus | "all">("all");
+  const [selectedVerification, setSelectedVerification] = useState<Verification | null>(null);
+  const [showModal, setShowModal] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [isApproving, setIsApproving] = useState(false);
+  const [isRejecting, setIsRejecting] = useState(false);
+  const [brokenLogos, setBrokenLogos] = useState<Record<string, boolean>>({});
+  const [rejectionError, setRejectionError] = useState("");
 
-  // Document preview modal state
-  const [previewOpen, setPreviewOpen] = React.useState(false);
-  const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
-  const [previewName, setPreviewName] = React.useState<string | null>(null);
-  const [previewIsPdf, setPreviewIsPdf] = React.useState(false);
-  const [previewLoading, setPreviewLoading] = React.useState(false);
-  const [selectedDocument, setSelectedDocument] = React.useState<Document | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewName, setPreviewName] = useState<string | null>(null);
+  const [previewIsPdf, setPreviewIsPdf] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
 
-  // Simple SWR key - load all data once
   const verificationsKey = isAdmin ? "/verification/admin/all" : null;
   const statsKey = isAdmin ? "/verification/admin/stats" : null;
 
@@ -99,63 +97,48 @@ export default function AdminVerificationsPage() {
     return Array.isArray(list) ? list : [];
   }, [rawData]);
 
-  // Enhanced client-side filtering with better search logic
   const filteredVerifications = useMemo(() => {
     let filtered = [...verifications];
 
-    // Status filter
     if (statusFilter !== "all") {
       filtered = filtered.filter((v) => v.verification_status === statusFilter);
     }
 
-    // Search filter - more comprehensive search
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
-      
-      // Split search terms to allow multiple keywords
-      const searchTerms = query.split(/\s+/).filter(term => term.length > 0);
-      
+      const searchTerms = query.split(/\s+/).filter((term) => term.length > 0);
+
       filtered = filtered.filter((verification) => {
-        // Create a searchable string with all relevant fields
         const searchableText = `
-          ${verification.business_name || ''}
-          ${verification.user_email || ''}
-          ${verification.user_display_id || ''}
-          ${verification.user_first_name || ''} 
-          ${verification.user_last_name || ''}
-          ${verification.verification_status || ''}
-          ${verification.id || ''}
+          ${verification.business_name || ""}
+          ${verification.user_email || ""}
+          ${verification.user_display_id || ""}
+          ${verification.user_first_name || ""}
+          ${verification.user_last_name || ""}
+          ${verification.verification_status || ""}
+          ${verification.id || ""}
         `.toLowerCase();
-        
-        // Check if ALL search terms are found in the searchable text
-        return searchTerms.every(term => searchableText.includes(term));
+
+        return searchTerms.every((term) => searchableText.includes(term));
       });
     }
 
-    // Sort by creation date (most recent first)
-    return filtered.sort((a, b) => 
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    return filtered.sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
   }, [verifications, statusFilter, searchQuery]);
 
-  // Calculate stats based on filtered results
   const filteredStats = useMemo(() => {
     if (searchQuery.trim() || statusFilter !== "all") {
       return {
-        pending: filteredVerifications.filter(v => v.verification_status === "pending").length,
-        approved: filteredVerifications.filter(v => v.verification_status === "approved").length,
-        rejected: filteredVerifications.filter(v => v.verification_status === "rejected").length,
-        resubmitted: filteredVerifications.filter(v => v.verification_status === "resubmitted").length,
+        pending: filteredVerifications.filter((v) => v.verification_status === "pending").length,
+        approved: filteredVerifications.filter((v) => v.verification_status === "approved").length,
+        rejected: filteredVerifications.filter((v) => v.verification_status === "rejected").length,
+        resubmitted: filteredVerifications.filter((v) => v.verification_status === "resubmitted").length,
         total: filteredVerifications.length,
       };
     }
-    return statsData || {
-      pending: 0,
-      approved: 0,
-      rejected: 0,
-      resubmitted: 0,
-      total: 0,
-    };
+    return statsData || { pending: 0, approved: 0, rejected: 0, resubmitted: 0, total: 0 };
   }, [filteredVerifications, statsData, searchQuery, statusFilter]);
 
   const stats = filteredStats;
@@ -183,6 +166,7 @@ export default function AdminVerificationsPage() {
       setSelectedVerification(response.data);
       setShowModal(true);
       setRejectionReason("");
+      setRejectionError(""); // ✅ clear any old error when opening modal
     } catch (error) {
       console.error("Error fetching verification details:", error);
       alert("Failed to load verification details");
@@ -201,6 +185,8 @@ export default function AdminVerificationsPage() {
       await loadVerifications();
       setShowModal(false);
       setSelectedVerification(null);
+      setRejectionReason("");
+      setRejectionError("");
     } catch (error: any) {
       console.error("Error approving verification:", error);
       alert(error.response?.data?.error || "Failed to approve verification");
@@ -209,13 +195,16 @@ export default function AdminVerificationsPage() {
     }
   };
 
+  // ✅ reject button should be clickable even if reason empty (so error UI can show)
   const handleReject = async () => {
     if (!selectedVerification) return;
 
     if (!rejectionReason.trim()) {
-      alert("Please provide a rejection reason");
+      setRejectionError("Please provide a rejection reason before rejecting.");
       return;
     }
+
+    setRejectionError("");
 
     try {
       setIsRejecting(true);
@@ -228,6 +217,7 @@ export default function AdminVerificationsPage() {
       setShowModal(false);
       setSelectedVerification(null);
       setRejectionReason("");
+      setRejectionError("");
     } catch (error: any) {
       console.error("Error rejecting verification:", error);
       alert(error.response?.data?.error || "Failed to reject verification");
@@ -260,90 +250,80 @@ export default function AdminVerificationsPage() {
     });
   };
 
-const openDocInModal = async (doc: Document) => {
-  setPreviewLoading(true);
-  setPreviewOpen(true);
-  setPreviewName(doc.document_name);
-  setSelectedDocument(doc);
+  const openDocInModal = async (doc: Document) => {
+    setPreviewLoading(true);
+    setPreviewOpen(true);
+    setPreviewName(doc.document_name);
+    setSelectedDocument(doc);
 
-  try {
-    // 1) Get signed URL from backend (admin endpoint)
-    const resp = await api.get<{ url: string }>(
-      `/verification/admin/documents/${doc.id}/view-url`
-    );
-    const remoteUrl = resp.data?.url;
-    if (!remoteUrl) throw new Error("No URL returned from server");
+    try {
+      const resp = await api.get<{ url: string }>(`/verification/admin/documents/${doc.id}/view-url`);
+      const remoteUrl = resp.data?.url;
+      if (!remoteUrl) throw new Error("No URL returned from server");
 
-    // 2) Fetch file as blob (this prevents forced-download behavior in iframe)
-    const r = await fetch(remoteUrl, { method: "GET" });
-    if (!r.ok) throw new Error(`Failed to fetch file (${r.status})`);
+      const r = await fetch(remoteUrl, { method: "GET" });
+      if (!r.ok) throw new Error(`Failed to fetch file (${r.status})`);
 
-    const contentType = r.headers.get("content-type") || "";
-    const blob = await r.blob();
+      const contentType = r.headers.get("content-type") || "";
+      const blob = await r.blob();
 
-    // 3) Detect PDF reliably
-    const isPdf =
-      contentType.includes("pdf") ||
-      (doc.document_name || "").toLowerCase().endsWith(".pdf") ||
-      remoteUrl.toLowerCase().includes(".pdf");
+      const isPdf =
+        contentType.includes("pdf") ||
+        (doc.document_name || "").toLowerCase().endsWith(".pdf") ||
+        remoteUrl.toLowerCase().includes(".pdf");
 
-    // 4) Force correct PDF mime if Cloudinary returns odd type
-    const safeBlob =
-      isPdf && blob.type !== "application/pdf"
-        ? new Blob([blob], { type: "application/pdf" })
-        : blob;
+      const safeBlob =
+        isPdf && blob.type !== "application/pdf"
+          ? new Blob([blob], { type: "application/pdf" })
+          : blob;
 
-    // 5) Create blob URL for preview
-    const blobUrl = URL.createObjectURL(safeBlob);
+      const blobUrl = URL.createObjectURL(safeBlob);
 
-    // cleanup old blob url if any
-    if (previewUrl && previewUrl.startsWith("blob:")) {
-      URL.revokeObjectURL(previewUrl);
+      if (previewUrl && previewUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(previewUrl);
+      }
+
+      setPreviewIsPdf(isPdf);
+      setPreviewUrl(blobUrl);
+    } catch (e: any) {
+      console.error("Failed to open document:", e);
+      alert("Could not open document: " + (e?.message || "Unknown error"));
+      closePreview();
+    } finally {
+      setPreviewLoading(false);
     }
+  };
 
-    setPreviewIsPdf(isPdf);
-    setPreviewUrl(blobUrl);
-  } catch (e: any) {
-    console.error("Failed to open document:", e);
-    alert("Could not open document: " + (e?.message || "Unknown error"));
-    closePreview();
-  } finally {
-    setPreviewLoading(false);
-  }
-};
-
-
-  // Download document with proper filename
   const downloadDocument = async (doc: Document) => {
     try {
-      // Get signed URL
       const resp = await api.get<{ url: string }>(`/verification/admin/documents/${doc.id}/view-url`);
       const remoteUrl = resp.data.url;
-      if (!remoteUrl) throw new Error('No URL returned');
+      if (!remoteUrl) throw new Error("No URL returned");
 
-      // Fetch the document
       const response = await fetch(remoteUrl);
       if (!response.ok) throw new Error(`Failed to fetch file (${response.status})`);
 
-      const contentType = response.headers.get('content-type') || '';
+      const contentType = response.headers.get("content-type") || "";
       const blob = await response.blob();
 
-      // Determine file extension
-      const defaultExt = contentType.includes('pdf') ? '.pdf' :
-                        contentType.includes('png') ? '.png' :
-                        contentType.includes('jpeg') ? '.jpg' :
-                        contentType.includes('webp') ? '.webp' : '';
+      const defaultExt = contentType.includes("pdf")
+        ? ".pdf"
+        : contentType.includes("png")
+        ? ".png"
+        : contentType.includes("jpeg")
+        ? ".jpg"
+        : contentType.includes("webp")
+        ? ".webp"
+        : "";
 
-      // Clean filename
       let filename = doc.document_name.trim();
-      filename = filename.replace(/[<>:"/\\|?*\x00-\x1F]/g, '').slice(0, 180);
+      filename = filename.replace(/[<>:"/\\|?*\x00-\x1F]/g, "").slice(0, 180);
       if (!/\.[a-z0-9]{2,5}$/i.test(filename) && defaultExt) {
         filename += defaultExt;
       }
 
-      // Create download link
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
       a.download = filename;
       document.body.appendChild(a);
@@ -356,35 +336,33 @@ const openDocInModal = async (doc: Document) => {
     }
   };
 
-  // Close preview modal
- const closePreview = () => {
-  setPreviewOpen(false);
-  setPreviewIsPdf(false);
-  setPreviewName(null);
-  setPreviewLoading(false);
-  setSelectedDocument(null);
+  const closePreview = () => {
+    setPreviewOpen(false);
+    setPreviewIsPdf(false);
+    setPreviewName(null);
+    setPreviewLoading(false);
+    setSelectedDocument(null);
 
-  if (previewUrl && previewUrl.startsWith("blob:")) {
-    URL.revokeObjectURL(previewUrl);
-  }
-  setPreviewUrl(null);
-};
+    if (previewUrl && previewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    setPreviewUrl(null);
+  };
 
   if (!isAdmin) return null;
 
   const isLoading = verificationsLoading || statsLoading;
   const error = verificationsError || statsError;
 
-  // Loading state
   if (isLoading) {
     return (
       <>
-        <div style={styles.statsGrid}>
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} style={styles.statCardSkeleton}>
-              <div style={styles.skeletonIcon} />
-              <div style={styles.skeletonValue} />
-              <div style={styles.skeletonTitle} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mb-8">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+              <div className="w-14 h-14 bg-gray-200 rounded-xl animate-pulse mb-4" />
+              <div className="h-8 bg-gray-200 rounded w-3/4 animate-pulse mb-2" />
+              <div className="h-4 bg-gray-200 rounded w-full animate-pulse" />
             </div>
           ))}
         </div>
@@ -393,16 +371,27 @@ const openDocInModal = async (doc: Document) => {
     );
   }
 
-  // Error state
   if (error && !isLoading) {
     return (
-      <div style={styles.errorContainer}>
-        <div style={styles.errorIcon}>⚠️</div>
-        <h2 style={styles.errorTitle}>Failed to Load Verifications</h2>
-        <p style={styles.errorMessage}>
-          {error.message || "Unable to fetch verifications. Please try again."}
+      <div className="flex flex-col items-center justify-center py-20">
+        <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mb-6">
+          <svg className="w-10 h-10 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+            />
+          </svg>
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Failed to Load Verifications</h2>
+        <p className="text-gray-600 mb-8 text-center max-w-md">
+          {(error as any)?.message || "Unable to fetch verifications. Please check your connection and try again."}
         </p>
-        <button onClick={loadVerifications} style={styles.retryButton}>
+        <button
+          onClick={loadVerifications}
+          className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition shadow-lg hover:shadow-xl"
+        >
           Retry
         </button>
       </div>
@@ -412,98 +401,98 @@ const openDocInModal = async (doc: Document) => {
   return (
     <>
       {/* Stats Cards */}
-      <div style={styles.statsGrid}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mb-10">
         <StatCard
-          title="Pending"
+          title="Pending Review"
           value={stats.pending.toLocaleString()}
-          icon="⏳"
-          gradient="linear-gradient(135deg, #F59E0B 0%, #D97706 100%)"
+          icon={
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          }
+          color="from-amber-500 to-amber-600"
         />
         <StatCard
           title="Approved"
           value={stats.approved.toLocaleString()}
-          icon="✅"
-          gradient="linear-gradient(135deg, #10B981 0%, #059669 100%)"
+          icon={
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          }
+          color="from-emerald-500 to-emerald-600"
         />
         <StatCard
           title="Rejected"
           value={stats.rejected.toLocaleString()}
-          icon="❌"
-          gradient="linear-gradient(135deg, #EF4444 0%, #DC2626 100%)"
+          icon={
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          }
+          color="from-red-500 to-red-600"
         />
         <StatCard
           title="Resubmitted"
           value={stats.resubmitted.toLocaleString()}
-          icon="🔄"
-          gradient="linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)"
+          icon={
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          }
+          color="from-blue-500 to-blue-600"
         />
         <StatCard
-          title="Total"
+          title="Total Submissions"
           value={stats.total.toLocaleString()}
-          icon="📊"
-          gradient="linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%)"
+          icon={
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          }
+          color="from-purple-500 to-purple-600"
         />
       </div>
 
-      {/* Filters and Search - Enhanced with search results info */}
-      <div style={styles.filterPanel}>
-        <div style={styles.filterGrid}>
-          {/* Search */}
-          <div style={{ ...styles.searchContainer, flex: "1 1 400px" }}>
-            <div style={styles.searchIconWrapper}>
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <path
-                  d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
-                  fill="#9CA3AF"
-                />
+      {/* Filters */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </div>
             <input
               type="text"
-              placeholder="Search by business name, email, display ID, name, or status..."
+              placeholder="Search by business, email, name, or ID..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={styles.searchInput}
+              className="w-full pl-12 pr-10 py-3.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
             />
             {searchQuery && (
-              <button onClick={() => setSearchQuery("")} style={styles.clearButton}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path
-                    d="M12 4L4 12M4 4l8 8"
-                    stroke="#6B7280"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             )}
           </div>
 
-          {/* Status Filter */}
-          <div style={styles.filterItem}>
-            <label style={styles.filterLabel}>
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="none"
-                style={{ marginRight: 6 }}
-              >
-                <path
-                  d="M8 2L2 5v3c0 3.5 2.5 6 6 7 3.5-1 6-3.5 6-7V5l-6-3z"
-                  stroke="#6B7280"
-                  strokeWidth="1.5"
-                  strokeLinejoin="round"
-                />
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+              <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6 6a1 1 0 00-.293.707V20a1 1 0 01-1.414.586L10 18.414A1 1 0 019.707 18V14a1 1 0 00-.293-.707l-6-6A1 1 0 013 6.586V4z" />
               </svg>
-              Status
+              Filter by Status
             </label>
             <select
               value={statusFilter}
-              onChange={(e) =>
-                setStatusFilter(e.target.value as VerificationStatus | "all")
-              }
-              style={styles.select}
+              onChange={(e) => setStatusFilter(e.target.value as VerificationStatus | "all")}
+              className="w-full px-4 py-3.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="all">All Status</option>
               <option value="pending">Pending</option>
@@ -513,67 +502,41 @@ const openDocInModal = async (doc: Document) => {
             </select>
           </div>
 
-          {/* Refresh Button */}
           <button
             onClick={loadVerifications}
             disabled={isLoading}
-            style={{
-              ...styles.refreshButton,
-              opacity: isLoading ? 0.5 : 1,
-              cursor: isLoading ? "not-allowed" : "pointer",
-            }}
+            className="px-6 py-3.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-lg hover:shadow-xl flex items-center justify-center gap-2"
           >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 20 20"
-              fill="none"
-              style={{
-                transform: isLoading ? "rotate(180deg)" : "rotate(0deg)",
-                transition: "transform 0.3s ease",
-              }}
-            >
-              <path
-                d="M4 2v6h6M16 18v-6h-6"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M16.91 8A8 8 0 103.04 12.91"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+            <svg className={`w-5 h-5 ${isLoading ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
             Refresh
           </button>
         </div>
-        
-        {/* Search results info */}
+
         {(searchQuery || statusFilter !== "all") && (
-          <div style={styles.searchResultsInfo}>
-            <span style={{ color: "#6B7280", fontSize: 14 }}>
-              Showing {filteredVerifications.length} of {verifications.length} verifications
+          <div className="mt-6 pt-6 border-t border-gray-200 flex items-center justify-between">
+            <p className="text-sm text-gray-600">
+              Showing <strong>{filteredVerifications.length}</strong> of <strong>{verifications.length}</strong> verifications
               {searchQuery && (
-                <span>
-                  {" "}matching "<strong>{searchQuery}</strong>"
-                </span>
+                <>
+                  {" "}
+                  matching "<strong>{searchQuery}</strong>"
+                </>
               )}
               {statusFilter !== "all" && (
-                <span>
-                  {" "}with status "<strong>{statusFilter}</strong>"
-                </span>
+                <>
+                  {" "}
+                  with status "<strong>{statusFilter}</strong>"
+                </>
               )}
-            </span>
+            </p>
             <button
               onClick={() => {
                 setSearchQuery("");
                 setStatusFilter("all");
               }}
-              style={styles.clearAllButton}
+              className="text-sm font-medium text-blue-600 hover:text-blue-700"
             >
               Clear filters
             </button>
@@ -582,109 +545,79 @@ const openDocInModal = async (doc: Document) => {
       </div>
 
       {/* Verifications Table */}
-      <div style={styles.tableContainer}>
-        {isLoading ? (
-          <div style={styles.loadingState}>
-            <div style={styles.spinner} />
-            <p>Loading verifications...</p>
-          </div>
-        ) : filteredVerifications.length === 0 ? (
-          <div style={styles.emptyState}>
-            <div style={styles.emptyIconContainer}>
-              <span style={{ fontSize: 48 }}>🔍</span>
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        {filteredVerifications.length === 0 ? (
+          <div className="p-16 text-center">
+            <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
             </div>
-            <h3 style={styles.emptyTitle}>
-              {searchQuery || statusFilter !== "all" 
-                ? "No matching verifications found" 
-                : "No verifications found"}
+            <h3 className="text-xl font-bold text-gray-900 mb-2">
+              {searchQuery || statusFilter !== "all" ? "No matching verifications" : "No verifications yet"}
             </h3>
-            <p style={styles.emptyText}>
-              {searchQuery 
-                ? "Try different search terms or clear the search" 
-                : statusFilter !== "all" 
-                  ? "Try a different status filter" 
-                  : "No providers have submitted documents yet"}
+            <p className="text-gray-600">
+              {searchQuery || statusFilter !== "all" ? "Try adjusting your filters" : "No providers have submitted verification documents yet"}
             </p>
-            {(searchQuery || statusFilter !== "all") && (
-              <button
-                onClick={() => {
-                  setSearchQuery("");
-                  setStatusFilter("all");
-                }}
-                style={styles.clearFiltersButton}
-              >
-                Clear filters
-              </button>
-            )}
           </div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={styles.table}>
-              <thead>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th style={styles.tableHeader}>Provider</th>
-                  <th style={styles.tableHeader}>Business</th>
-                  <th style={styles.tableHeader}>Documents</th>
-                  <th style={styles.tableHeader}>Status</th>
-                  <th style={styles.tableHeader}>Submitted</th>
-                  <th style={styles.tableHeader}>Actions</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Provider</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Business</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Documents</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Submitted</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-gray-200">
                 {filteredVerifications.map((verification) => (
-                  <tr key={verification.id} style={styles.tableRow}>
-                    <td style={styles.tableCell}>
+                  <tr key={verification.id} className="hover:bg-gray-50 transition">
+                    <td className="px-6 py-5">
                       <div>
-                        <div style={styles.userName}>{displayName(verification)}</div>
-                        <div style={styles.email}>{verification.user_email}</div>
-                        <div style={styles.userId}>ID: {verification.user_display_id}</div>
+                        <div className="font-semibold text-gray-900">{displayName(verification)}</div>
+                        <div className="text-sm text-gray-600">{verification.user_email}</div>
+                        <div className="text-xs text-gray-500 mt-1">ID: {verification.user_display_id}</div>
                       </div>
                     </td>
-                    <td style={styles.tableCell}>
-                      <div style={styles.userInfo}>
+
+                    <td className="px-6 py-5">
+                      <div className="flex items-center gap-4">
                         <Avatar
                           url={getLogo(verification)}
                           alt={verification.business_name}
                           initials={initials(verification)}
-                          shape="rounded"
-                          onError={() =>
-                            setBrokenLogos((p) => ({ ...p, [verification.id]: true }))
-                          }
+                          onError={() => setBrokenLogos((p) => ({ ...p, [verification.id]: true }))}
                         />
-                        <div style={styles.businessName}>{verification.business_name}</div>
+                        <div className="font-medium text-gray-900">{verification.business_name}</div>
                       </div>
                     </td>
-                    <td style={styles.tableCell}>
-                      <div style={styles.documentsCount}>
-                        {verification.documents?.length || 0} document(s)
+
+                    <td className="px-6 py-5">
+                      <div className="text-sm font-medium text-gray-700">
+                        {verification.documents?.length || 0} document{verification.documents?.length !== 1 ? "s" : ""}
                       </div>
                     </td>
-                    <td style={styles.tableCell}>
+
+                    <td className="px-6 py-5">
                       <StatusBadge status={verification.verification_status} />
                     </td>
-                    <td style={styles.tableCell}>
-                      <div style={styles.date}>{formatDate(verification.created_at)}</div>
+
+                    <td className="px-6 py-5">
+                      <div className="text-sm text-gray-700">{formatDate(verification.created_at)}</div>
                     </td>
-                    <td style={styles.tableCell}>
+
+                    <td className="px-6 py-5">
                       <button
                         onClick={() => handleViewDetails(verification)}
-                        style={styles.viewButton}
+                        className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-medium rounded-lg hover:from-blue-700 hover:to-blue-800 transition shadow-md hover:shadow-lg flex items-center gap-2"
                       >
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                          <path
-                            d="M1 8s3-5 7-5 7 5 7 5-3 5-7 5-7-5-7-5z"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                          <circle
-                            cx="8"
-                            cy="8"
-                            r="2"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                          />
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                         </svg>
                         Review
                       </button>
@@ -700,159 +633,135 @@ const openDocInModal = async (doc: Document) => {
       {/* Review Modal */}
       {showModal && selectedVerification && (
         <div
-          style={styles.modalOverlay}
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50"
           onClick={() => {
             setShowModal(false);
             setSelectedVerification(null);
+            setRejectionReason("");
+            setRejectionError("");
           }}
         >
-          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-            {/* Modal Header */}
-            <div style={styles.modalHeader}>
-              <div style={styles.modalHeaderContent}>
-                <Avatar
-                  url={getLogo(selectedVerification)}
-                  alt={selectedVerification.business_name}
-                  initials={initials(selectedVerification)}
-                  size={64}
-                  shape="rounded"
-                  onError={() =>
-                    setBrokenLogos((p) => ({ ...p, [selectedVerification.id]: true }))
-                  }
-                />
-                <div>
-                  <h2 style={styles.modalTitle}>{selectedVerification.business_name}</h2>
-                  <div style={styles.modalSubtitle}>
-                    {displayName(selectedVerification)} • {selectedVerification.user_display_id}
-                  </div>
-                  <div style={{ marginTop: 8 }}>
-                    <StatusBadge status={selectedVerification.verification_status} />
+          <div
+            className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-8 border-b border-gray-200">
+              <div className="flex justify-between items-start">
+                <div className="flex items-center gap-6">
+                  <Avatar
+                    url={getLogo(selectedVerification)}
+                    alt={selectedVerification.business_name}
+                    initials={initials(selectedVerification)}
+                    size={72}
+                    onError={() => setBrokenLogos((p) => ({ ...p, [selectedVerification.id]: true }))}
+                  />
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900">{selectedVerification.business_name}</h2>
+                    <p className="text-gray-600 mt-1">
+                      {displayName(selectedVerification)} • ID: {selectedVerification.user_display_id}
+                    </p>
+                    <div className="mt-3">
+                      <StatusBadge status={selectedVerification.verification_status} />
+                    </div>
                   </div>
                 </div>
+                <button
+                  onClick={() => {
+                    setShowModal(false);
+                    setSelectedVerification(null);
+                    setRejectionReason("");
+                    setRejectionError("");
+                  }}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition"
+                >
+                  <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
-
-              <button
-                onClick={() => {
-                  setShowModal(false);
-                  setSelectedVerification(null);
-                  setRejectionReason("");
-                }}
-                style={styles.closeButton}
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M18 6L6 18M6 6l12 12"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
             </div>
 
-            {/* Modal Body */}
-            <div style={styles.modalBody}>
-              {/* Provider Info */}
-              <div style={styles.modalSection}>
-                <h3 style={styles.modalSectionTitle}>
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 8a3 3 0 100-6 3 3 0 000 6zM3 14a5 5 0 0110 0H3z" fill="#6B7280" />
+            <div className="p-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-gray-50 rounded-xl p-6">
+                <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
                   Provider Information
                 </h3>
-                <div style={styles.detailsGrid}>
-                  <DetailItem
-                    label="Name"
-                    value={`${selectedVerification.user_first_name} ${selectedVerification.user_last_name}`}
-                  />
-                  <DetailItem label="Email" value={selectedVerification.user_email} />
-                  <DetailItem label="Display ID" value={selectedVerification.user_display_id} />
-                  <DetailItem
-                    label="Registered"
-                    value={formatDateTime(selectedVerification.created_at)}
-                  />
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-sm text-gray-600 font-medium">Name</div>
+                    <div className="font-semibold">{`${selectedVerification.user_first_name} ${selectedVerification.user_last_name}`}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-600 font-medium">Email</div>
+                    <div className="font-semibold">{selectedVerification.user_email}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-600 font-medium">Display ID</div>
+                    <div className="font-semibold">{selectedVerification.user_display_id}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-600 font-medium">Submitted</div>
+                    <div className="font-semibold">{formatDateTime(selectedVerification.created_at)}</div>
+                  </div>
                 </div>
               </div>
 
-              {/* Documents - UPDATED WITH VIEW & DOWNLOAD BUTTONS */}
-              <div style={styles.modalSection}>
-                <h3 style={styles.modalSectionTitle}>
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path
-                      d="M9 1H3a1 1 0 00-1 1v12a1 1 0 001 1h10a1 1 0 001-1V5l-5-4z"
-                      stroke="#6B7280"
-                      strokeWidth="1.5"
-                      strokeLinejoin="round"
-                    />
-                    <path
-                      d="M9 1v4h4"
-                      stroke="#6B7280"
-                      strokeWidth="1.5"
-                      strokeLinejoin="round"
-                    />
+              <div className="bg-gray-50 rounded-xl p-6">
+                <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                   </svg>
                   Uploaded Documents
                 </h3>
-                {selectedVerification.documents && selectedVerification.documents.length > 0 ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+                {selectedVerification.documents?.length > 0 ? (
+                  <div className="space-y-4">
                     {selectedVerification.documents.map((doc) => (
-                      <div key={doc.id} style={styles.documentCard}>
-                        <div style={{ flex: 1 }}>
-                          <div style={styles.documentType}>
-                            {doc.document_type === "commercial_registration" && "📄 Commercial Registration"}
-                            {doc.document_type === "trade_license" && "📜 Trade License"}
-                            {doc.document_type === "other" && "📎 Other Document"}
+                      <div
+                        key={doc.id}
+                        className="bg-white border border-gray-200 rounded-lg p-4 flex items-center justify-between gap-4"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-gray-900">
+                            {doc.document_type === "commercial_registration" && "Commercial Registration"}
+                            {doc.document_type === "trade_license" && "Trade License"}
+                            {doc.document_type === "other" && "Other Document"}
                           </div>
-                          <div style={styles.documentInfo}>{doc.document_name}</div>
-                          <div style={styles.documentInfo}>
+                          <div className="text-sm text-gray-600 mt-1 truncate" title={doc.document_name}>
+                            {doc.document_name}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
                             {formatFileSize(doc.file_size)} • {formatDateTime(doc.uploaded_at)}
                           </div>
+
                           {doc.rejection_reason && (
-                            <div style={styles.rejectionAlert}>
-                              <strong>Rejection:</strong> {doc.rejection_reason}
+                            <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                              <strong>Rejection reason:</strong> {doc.rejection_reason}
                             </div>
                           )}
                         </div>
-                        <div style={{ display: "flex", gap: 8 }}>
+
+                        <div className="flex gap-2 flex-shrink-0">
                           <button
                             onClick={() => openDocInModal(doc)}
-                            style={styles.viewDocButton}
+                            className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-2 text-sm font-medium whitespace-nowrap"
                           >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                              <path
-                                d="M1 8s3-5 7-5 7 5 7 5-3 5-7 5-7-5-7-5z"
-                                stroke="currentColor"
-                                strokeWidth="1.5"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              />
-                              <circle
-                                cx="8"
-                                cy="8"
-                                r="2"
-                                stroke="currentColor"
-                                strokeWidth="1.5"
-                              />
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                             </svg>
                             View
                           </button>
+
                           <button
                             onClick={() => downloadDocument(doc)}
-                            style={styles.downloadButton}
+                            className="px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition flex items-center gap-2 text-sm font-medium whitespace-nowrap"
                           >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                              <path
-                                d="M8 2v8m0 0L5 7m3 3l3-3"
-                                stroke="currentColor"
-                                strokeWidth="1.5"
-                                strokeLinecap="round"
-                              />
-                              <path
-                                d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"
-                                stroke="currentColor"
-                                strokeWidth="1.5"
-                                strokeLinecap="round"
-                              />
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                             </svg>
                             Download
                           </button>
@@ -861,75 +770,87 @@ const openDocInModal = async (doc: Document) => {
                     ))}
                   </div>
                 ) : (
-                  <div style={styles.emptyDocuments}>
-                    <span style={{ fontSize: 32 }}>📄</span>
-                    <p style={{ margin: "8px 0 0 0", color: "#6B7280" }}>
-                      No documents uploaded
-                    </p>
+                  <div className="text-center py-8 text-gray-500">
+                    <svg className="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    No documents uploaded
                   </div>
                 )}
               </div>
 
               {/* Rejection Reason Input */}
               {selectedVerification.verification_status !== "approved" && (
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <label style={styles.inputLabel}>
-                    Rejection Reason (required if rejecting)
+                <div className="lg:col-span-2 space-y-3">
+                  <label className="block text-sm font-semibold text-gray-700">
+                    Rejection Reason <span className="text-red-600">(required if rejecting)</span>
                   </label>
+
                   <textarea
                     value={rejectionReason}
-                    onChange={(e) => setRejectionReason(e.target.value)}
-                    placeholder="Please provide a clear reason for rejection..."
-                    rows={4}
-                    style={styles.textarea}
+                    onChange={(e) => {
+                      setRejectionReason(e.target.value);
+                      if (rejectionError) setRejectionError("");
+                    }}
+                    placeholder="Explain why this submission was rejected (e.g., unclear document, missing information, etc.)..."
+                    rows={5}
+                    className={`w-full px-4 py-3 border-2 rounded-xl focus:outline-none focus:ring-2 resize-none transition-all ${
+                      rejectionError
+                        ? "border-red-500 focus:border-red-500 focus:ring-red-500/20"
+                        : "border-gray-300 focus:border-blue-500 focus:ring-blue-500/20"
+                    }`}
                   />
+
+                  {rejectionError && (
+                    <div className="flex items-start gap-3 p-4 bg-red-50 border-2 border-red-200 rounded-xl">
+                      <svg className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <div className="flex-1">
+                        <p className="font-semibold text-red-900 text-sm">Rejection Reason Required</p>
+                        <p className="text-red-700 text-sm mt-1">{rejectionError}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Modal Footer */}
-            <div style={styles.modalFooter}>
+            {/* Footer actions */}
+            <div className="p-8 border-t border-gray-200 flex justify-end gap-4">
               <button
                 onClick={() => {
                   setShowModal(false);
                   setSelectedVerification(null);
                   setRejectionReason("");
+                  setRejectionError("");
                 }}
                 disabled={isApproving || isRejecting}
-                style={{
-                  ...styles.modalButton,
-                  ...styles.modalCancelButton,
-                  opacity: (isApproving || isRejecting) ? 0.5 : 1,
-                }}
+                className="px-6 py-3 border border-gray-300 text-gray-700 font-medium rounded-xl hover:bg-gray-50 transition"
               >
                 Cancel
               </button>
 
               {selectedVerification.verification_status !== "approved" && (
                 <>
+                  {/* ✅ FIX: removed "!rejectionReason.trim()" so click triggers error message */}
                   <button
                     onClick={handleReject}
                     disabled={isApproving || isRejecting}
-                    style={{
-                      ...styles.modalButton,
-                      ...styles.modalRejectButton,
-                      opacity: (isApproving || isRejecting) ? 0.5 : 1,
-                    }}
+                    className="px-8 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white font-semibold rounded-xl hover:from-red-700 hover:to-red-800 disabled:opacity-50 transition shadow-lg hover:shadow-xl flex items-center gap-2"
                   >
                     {isRejecting ? (
                       <>
-                        <div style={styles.buttonSpinner} />
+                        <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
                         Rejecting...
                       </>
                     ) : (
                       <>
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                          <path
-                            d="M12 4L4 12M4 4l8 8"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                          />
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                         Reject
                       </>
@@ -939,27 +860,20 @@ const openDocInModal = async (doc: Document) => {
                   <button
                     onClick={handleApprove}
                     disabled={isApproving || isRejecting}
-                    style={{
-                      ...styles.modalButton,
-                      ...styles.modalApproveButton,
-                      opacity: (isApproving || isRejecting) ? 0.5 : 1,
-                    }}
+                    className="px-8 py-3 bg-gradient-to-r from-emerald-600 to-emerald-700 text-white font-semibold rounded-xl hover:from-emerald-700 hover:to-emerald-800 disabled:opacity-50 transition shadow-lg hover:shadow-xl flex items-center gap-2"
                   >
                     {isApproving ? (
                       <>
-                        <div style={styles.buttonSpinner} />
+                        <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
                         Approving...
                       </>
                     ) : (
                       <>
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                          <path
-                            d="M13 4L6 11l-3-3"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                         Approve
                       </>
@@ -972,83 +886,68 @@ const openDocInModal = async (doc: Document) => {
         </div>
       )}
 
-      {/* Document Preview Modal (like partner portal) */}
+      {/* Document Preview Modal */}
       {previewOpen && (
-        <div style={styles.previewOverlay}>
-          <div style={styles.previewModal}>
-            {/* Preview Header */}
-            <div style={styles.previewHeader}>
-              <div style={{ flex: 1 }}>
-                <div style={styles.previewTitle}>{previewName || "Document Preview"}</div>
-                <div style={styles.previewSubtitle}>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-7xl w-full h-[90vh] flex flex-col">
+            <div className="p-6 border-b border-gray-200 flex justify-between items-center flex-shrink-0">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">{previewName || "Document Preview"}</h3>
+                <p className="text-sm text-gray-600 mt-1">
                   {selectedDocument?.document_type === "commercial_registration" && "Commercial Registration"}
                   {selectedDocument?.document_type === "trade_license" && "Trade License"}
                   {selectedDocument?.document_type === "other" && "Other Document"}
-                </div>
+                </p>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
+              <div className="flex items-center gap-3">
                 {selectedDocument && (
                   <button
                     onClick={() => downloadDocument(selectedDocument)}
-                    style={styles.previewDownloadButton}
+                    className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 transition flex items-center gap-2 font-medium"
                   >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                      <path
-                        d="M8 2v8m0 0L5 7m3 3l3-3"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                      />
-                      <path
-                        d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                      />
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                     </svg>
                     Download
                   </button>
                 )}
-                <button
-                  onClick={closePreview}
-                  style={styles.previewCloseButton}
-                >
-                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                    <path
-                      d="M15 5L5 15M5 5l10 10"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
+                <button onClick={closePreview} className="p-2 hover:bg-gray-100 rounded-lg transition">
+                  <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
               </div>
             </div>
 
-            {/* Preview Content */}
-            <div style={styles.previewContent}>
+            <div className="flex-1 bg-gray-50 overflow-hidden">
               {previewLoading ? (
-                <div style={styles.previewLoading}>
-                  <div style={styles.spinner} />
-                  <p>Loading document...</p>
+                <div className="h-full flex flex-col items-center justify-center">
+                  <svg className="w-12 h-12 animate-spin text-blue-600 mb-4" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  <p className="text-gray-600">Loading document...</p>
                 </div>
               ) : !previewUrl ? (
-                <div style={styles.previewEmpty}>
-                  <span style={{ fontSize: 48 }}>📄</span>
-                  <p style={{ marginTop: 16 }}>No preview available</p>
+                <div className="h-full flex flex-col items-center justify-center text-gray-500">
+                  <svg className="w-16 h-16 mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <p>No preview available</p>
                 </div>
               ) : previewIsPdf ? (
                 <iframe
                   src={previewUrl}
-                  style={{ width: "100%", height: "100%", border: "none" }}
-                  title="Document Preview"
+                  className="w-full h-full border-0"
+                  title="PDF Preview"
+                  style={{ minHeight: "100%", display: "block" }}
                 />
               ) : (
-                <div style={styles.previewImageContainer}>
+                <div className="h-full flex items-center justify-center p-8 bg-white">
                   <img
                     src={previewUrl}
                     alt="Document Preview"
-                    style={styles.previewImage}
+                    className="max-w-full max-h-full rounded-lg shadow-2xl border border-gray-200"
                   />
                 </div>
               )}
@@ -1060,26 +959,25 @@ const openDocInModal = async (doc: Document) => {
   );
 }
 
-/* ----------------------------- Components ----------------------------- */
-
+/* Components */
 function StatCard({
   title,
   value,
   icon,
-  gradient,
+  color,
 }: {
   title: string;
   value: string;
-  icon: string;
-  gradient: string;
+  icon: React.ReactNode;
+  color: string;
 }) {
   return (
-    <div style={styles.statCard}>
-      <div style={{ ...styles.statIcon, background: gradient }}>
-        <span style={{ fontSize: 24 }}>{icon}</span>
+    <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+      <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${color} text-white flex items-center justify-center shadow-lg mb-4`}>
+        {icon}
       </div>
-      <div style={styles.statValue}>{value}</div>
-      <div style={styles.statTitle}>{title}</div>
+      <div className="text-3xl font-bold text-gray-900 mb-1">{value}</div>
+      <div className="text-sm font-semibold text-gray-700">{title}</div>
     </div>
   );
 }
@@ -1090,32 +988,22 @@ function Avatar({
   initials,
   onError,
   size = 48,
-  shape = "circle",
 }: {
   url: string | null;
   alt: string;
   initials: string;
   onError: () => void;
   size?: number;
-  shape?: "circle" | "rounded";
 }) {
-  const radius = shape === "circle" ? "50%" : 12;
-
   if (!url) {
     return (
       <div
+        className="flex items-center justify-center text-white font-bold rounded-xl"
         style={{
           width: size,
           height: size,
-          borderRadius: radius,
-          background: "linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "#3B82F6",
-          fontWeight: 800,
-          fontSize: Math.max(14, Math.floor(size / 3)),
-          flexShrink: 0,
+          background: "linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)",
+          fontSize: size / 2.8,
         }}
         title={alt}
       >
@@ -1125,745 +1013,27 @@ function Avatar({
   }
 
   return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: radius,
-        overflow: "hidden",
-        border: "2px solid #F3F4F6",
-        background: "#fff",
-        flexShrink: 0,
-      }}
-      title={alt}
-    >
-      <img
-        src={url}
-        alt={alt}
-        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-        onError={onError}
-        referrerPolicy="no-referrer"
-      />
-    </div>
-  );
-}
-
-function DetailItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div style={styles.detailLabel}>{label}</div>
-      <div style={styles.detailValue}>{value}</div>
-    </div>
+    <img
+      src={url}
+      alt={alt}
+      className="rounded-xl object-cover border-2 border-gray-200"
+      style={{ width: size, height: size }}
+      onError={onError}
+    />
   );
 }
 
 function StatusBadge({ status }: { status: VerificationStatus }) {
-  const colors: Record<
-    VerificationStatus,
-    { background: string; color: string;}
-  > = {
-    pending: { background: "#FEF3C7", color: "#D97706", },
-    approved: { background: "#ECFDF5", color: "#059669",},
-    rejected: { background: "#FEE2E2", color: "#DC2626",},
-    resubmitted: { background: "#EFF6FF", color: "#2563EB", },
-  };
+  const config = {
+    pending: { bg: "bg-amber-100", text: "text-amber-800", label: "Pending" },
+    approved: { bg: "bg-emerald-100", text: "text-emerald-800", label: "Approved" },
+    rejected: { bg: "bg-red-100", text: "text-red-800", label: "Rejected" },
+    resubmitted: { bg: "bg-blue-100", text: "text-blue-800", label: "Resubmitted" },
+  }[status];
 
   return (
-    <span
-      style={{
-        ...styles.badge,
-        background: colors[status].background,
-        color: colors[status].color,
-      }}
-    >
-      <span style={{ textTransform: "capitalize" }}>{status}</span>
+    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold ${config.bg} ${config.text}`}>
+      {config.label}
     </span>
   );
 }
-
-/* ----------------------------- Styles ----------------------------- */
-
-const styles: Record<string, React.CSSProperties> = {
-  // Stats
-  statsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-    gap: 20,
-    marginBottom: 32,
-  },
-  statCard: {
-    background: "#FFFFFF",
-    borderRadius: 16,
-    padding: 20,
-    border: "1px solid #F3F4F6",
-    boxShadow: "0 4px 16px rgba(0, 0, 0, 0.04)",
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-  },
-  statIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
-  },
-  statValue: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: "#111827",
-    letterSpacing: "-0.02em",
-  },
-  statTitle: {
-    fontSize: 14,
-    color: "#6B7280",
-    fontWeight: "600",
-  },
-  statCardSkeleton: {
-    background: "#F3F4F6",
-    borderRadius: 16,
-    padding: 20,
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-  },
-  skeletonIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    background: "#E5E7EB",
-  },
-  skeletonValue: {
-    width: "60%",
-    height: 28,
-    borderRadius: 4,
-    background: "#E5E7EB",
-  },
-  skeletonTitle: {
-    width: "80%",
-    height: 14,
-    borderRadius: 4,
-    background: "#E5E7EB",
-  },
-
-  // Filters
-  filterPanel: {
-    background: "#FFFFFF",
-    border: "1px solid #F3F4F6",
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 24,
-    boxShadow: "0 4px 16px rgba(0, 0, 0, 0.04)",
-  },
-  filterGrid: {
-    display: "grid",
-    gridTemplateColumns: "2fr 1fr auto",
-    gap: 16,
-    alignItems: "end",
-  },
-  searchContainer: {
-    position: "relative",
-    display: "flex",
-    alignItems: "center",
-  },
-  searchIconWrapper: {
-    position: "absolute",
-    left: 14,
-    display: "flex",
-    alignItems: "center",
-    pointerEvents: "none",
-  },
-  searchInput: {
-    width: "100%",
-    height: 48,
-    paddingLeft: 44,
-    paddingRight: 40,
-    border: "2px solid #E5E7EB",
-    borderRadius: 12,
-    fontSize: 15,
-    fontWeight: "500",
-    color: "#111827",
-    outline: "none",
-    transition: "all 0.2s ease",
-  },
-  clearButton: {
-    position: "absolute",
-    right: 12,
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    padding: 4,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 4,
-  },
-  filterItem: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-  },
-  filterLabel: {
-    display: "flex",
-    alignItems: "center",
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#374151",
-  },
-  select: {
-    height: 48,
-    padding: "0 14px",
-    border: "2px solid #E5E7EB",
-    borderRadius: 12,
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111827",
-    cursor: "pointer",
-    outline: "none",
-    background: "#FFFFFF",
-    transition: "all 0.2s ease",
-  },
-  refreshButton: {
-    height: 48,
-    padding: "0 20px",
-    border: "none",
-    background: "linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)",
-    borderRadius: 12,
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#FFFFFF",
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    boxShadow: "0 4px 12px rgba(59, 130, 246, 0.3)",
-    transition: "all 0.2s ease",
-  },
-
-  // Table
-  tableContainer: {
-    background: "#FFFFFF",
-    border: "1px solid #F3F4F6",
-    borderRadius: 16,
-    overflow: "hidden",
-    boxShadow: "0 4px 16px rgba(0, 0, 0, 0.04)",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    minWidth: 1000,
-  },
-  tableHeader: {
-    padding: "16px 20px",
-    textAlign: "left",
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#6B7280",
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-    background: "#F9FAFB",
-    borderBottom: "2px solid #E5E7EB",
-  },
-  tableRow: {
-    borderTop: "1px solid #F3F4F6",
-    transition: "background 0.2s ease",
-  },
-  tableCell: {
-    padding: "20px",
-    fontSize: 14,
-    verticalAlign: "top",
-  },
-  userInfo: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-  },
-  userName: {
-    fontWeight: "700",
-    color: "#111827",
-    marginBottom: 4,
-  },
-  email: {
-    fontSize: 13,
-    color: "#6B7280",
-    marginBottom: 4,
-  },
-  userId: {
-    fontSize: 11,
-    color: "#9CA3AF",
-    fontFamily: "monospace",
-  },
-  businessName: {
-    fontWeight: "600",
-    color: "#111827",
-  },
-  documentsCount: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#6B7280",
-  },
-  date: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  badge: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    padding: "6px 12px",
-    borderRadius: 8,
-    fontSize: 12,
-    fontWeight: "700",
-    whiteSpace: "nowrap",
-  },
-  viewButton: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    padding: "8px 14px",
-    border: "none",
-    background: "linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)",
-    borderRadius: 8,
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#FFFFFF",
-    cursor: "pointer",
-    transition: "all 0.2s ease",
-    boxShadow: "0 2px 8px rgba(59, 130, 246, 0.3)",
-  },
-
-  // Loading/Empty states
-  loadingState: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 60,
-    gap: 16,
-    color: "#6B7280",
-  },
-  spinner: {
-    width: 40,
-    height: 40,
-    border: "4px solid #E5E7EB",
-    borderTopColor: "#3B82F6",
-    borderRadius: "50%",
-    animation: "spin 0.8s linear infinite",
-  },
-  emptyState: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 60,
-  },
-  emptyIconContainer: {
-    marginBottom: 20,
-  },
-  emptyTitle: {
-    margin: "0 0 8px 0",
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  emptyText: {
-    margin: 0,
-    fontSize: 14,
-    color: "#6B7280",
-  },
-
-  // Error state
-  errorContainer: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 60,
-  },
-  errorIcon: {
-    fontSize: 48,
-    marginBottom: 16,
-  },
-  errorTitle: {
-    margin: "0 0 8px 0",
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#991B1B",
-  },
-  errorMessage: {
-    margin: "0 0 24px 0",
-    fontSize: 14,
-    color: "#6B7280",
-  },
-  retryButton: {
-    padding: "12px 24px",
-    border: "none",
-    background: "linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)",
-    borderRadius: 12,
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#FFFFFF",
-    cursor: "pointer",
-    boxShadow: "0 4px 12px rgba(59, 130, 246, 0.3)",
-  },
-
-  // Modal
-  modalOverlay: {
-    position: "fixed",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    background: "rgba(0, 0, 0, 0.5)",
-    backdropFilter: "blur(4px)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 1000,
-    padding: 20,
-  },
-  modal: {
-    background: "#FFFFFF",
-    borderRadius: 20,
-    width: "100%",
-    maxWidth: 900,
-    maxHeight: "90vh",
-    display: "flex",
-    flexDirection: "column",
-    boxShadow: "0 20px 60px rgba(0, 0, 0, 0.3)",
-    overflow: "hidden",
-  },
-  modalHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    padding: 24,
-    borderBottom: "1px solid #F3F4F6",
-  },
-  modalHeaderContent: {
-    display: "flex",
-    gap: 16,
-    alignItems: "center",
-  },
-  modalTitle: {
-    margin: "0 0 4px 0",
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#111827",
-  },
-  modalSubtitle: {
-    fontSize: 14,
-    color: "#6B7280",
-    marginBottom: 4,
-  },
-  closeButton: {
-    background: "#F3F4F6",
-    border: "none",
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    color: "#6B7280",
-    transition: "all 0.2s ease",
-  },
-  modalBody: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 24,
-    padding: 24,
-    overflowY: "auto",
-  },
-  modalSection: {
-    background: "#F9FAFB",
-    borderRadius: 12,
-    padding: 16,
-  },
-  modalSectionTitle: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    margin: "0 0 16px 0",
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#374151",
-  },
-  detailsGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr",
-    gap: 12,
-  },
-  detailLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#6B7280",
-    marginBottom: 4,
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-  },
-  detailValue: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  documentCard: {
-    background: "#FFFFFF",
-    border: "1px solid #E5E7EB",
-    borderRadius: 8,
-    padding: 12,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  documentType: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#111827",
-    marginBottom: 4,
-  },
-  documentInfo: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginBottom: 2,
-  },
-  rejectionAlert: {
-    marginTop: 8,
-    padding: 8,
-    background: "#FEE2E2",
-    border: "1px solid #FCA5A5",
-    borderRadius: 6,
-    fontSize: 12,
-    color: "#991B1B",
-  },
-  viewDocButton: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    padding: "8px 12px",
-    background: "#3B82F6",
-    color: "#FFFFFF",
-    border: "none",
-    borderRadius: 8,
-    fontSize: 12,
-    fontWeight: "700",
-    cursor: "pointer",
-    whiteSpace: "nowrap",
-  },
-  downloadButton: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    padding: "8px 12px",
-    background: "#10B981",
-    color: "#FFFFFF",
-    border: "none",
-    borderRadius: 8,
-    fontSize: 12,
-    fontWeight: "700",
-    cursor: "pointer",
-    whiteSpace: "nowrap",
-  },
-  emptyDocuments: {
-    textAlign: "center",
-    padding: 24,
-    color: "#6B7280",
-  },
-  inputLabel: {
-    display: "block",
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#374151",
-    marginBottom: 8,
-  },
-  textarea: {
-    width: "100%",
-    padding: 12,
-    border: "2px solid #E5E7EB",
-    borderRadius: 12,
-    fontSize: 14,
-    fontFamily: "inherit",
-    color: "#111827",
-    outline: "none",
-    resize: "vertical",
-  },
-  modalFooter: {
-    padding: 24,
-    borderTop: "1px solid #F3F4F6",
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: 12,
-  },
-  modalButton: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "12px 20px",
-    borderRadius: 12,
-    fontSize: 14,
-    fontWeight: "700",
-    cursor: "pointer",
-    transition: "all 0.2s ease",
-    border: "none",
-  },
-  modalCancelButton: {
-    background: "#F3F4F6",
-    color: "#6B7280",
-  },
-  modalRejectButton: {
-    background: "#FEE2E2",
-    color: "#DC2626",
-  },
-  modalApproveButton: {
-    background: "#ECFDF5",
-    color: "#059669",
-  },
-  buttonSpinner: {
-    width: 16,
-    height: 16,
-    border: "2px solid currentColor",
-    borderTopColor: "transparent",
-    borderRadius: "50%",
-    animation: "spin 0.6s linear infinite",
-  },
-
-  // Document Preview Modal Styles (like partner portal)
-  previewOverlay: {
-    position: "fixed",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 2000,
-    padding: 20,
-  },
-  previewModal: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    width: "100%",
-    maxWidth: "90vw",
-  height: "90vh",
-  maxHeight: "90vh",
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
-    boxShadow: "0 20px 60px rgba(0, 0, 0, 0.4)",
-  },
-  previewHeader: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "16px 20px",
-    borderBottom: "1px solid #E5E7EB",
-    backgroundColor: "#F9FAFB",
-  },
-  previewTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#111827",
-    marginBottom: 2,
-  },
-  previewSubtitle: {
-    fontSize: 12,
-    color: "#6B7280",
-  },
-  previewDownloadButton: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    padding: "8px 12px",
-    backgroundColor: "#3B82F6",
-    color: "#FFFFFF",
-    border: "none",
-    borderRadius: 8,
-    fontSize: 14,
-    fontWeight: "600",
-    cursor: "pointer",
-  },
-  previewCloseButton: {
-    backgroundColor: "#F3F4F6",
-    border: "none",
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    color: "#6B7280",
-  },
-  previewContent: {
-    flex: 1,
-    backgroundColor: "#F9FAFB",
-    overflow: "hidden",
-  },
-  previewLoading: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    height: "100%",
-    gap: 16,
-    color: "#6B7280",
-  },
-  previewEmpty: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    height: "100%",
-    color: "#6B7280",
-  },
-  previewImageContainer: {
-    width: "100%",
-    height: "100%",
-    overflow: "auto",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 20,
-  },
-  previewImage: {
-    maxWidth: "100%",
-    maxHeight: "100%",
-    borderRadius: 8,
-    border: "1px solid #E5E7EB",
-    backgroundColor: "#FFFFFF",
-  },
-
-};
-
-// Add spinner animation
-const styleSheet = document.createElement("style");
-styleSheet.textContent = `
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-  
-  input:focus, select:focus, textarea:focus {
-    border-color: #3B82F6 !important;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
-  }
-  
-  button:hover:not(:disabled) {
-    transform: translateY(-1px);
-  }
-  
-  button:active:not(:disabled) {
-    transform: translateY(0);
-  }
-  
-  tr:hover {
-    background: #F9FAFB;
-  }
-`;
-document.head.appendChild(styleSheet);
