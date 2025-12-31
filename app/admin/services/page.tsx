@@ -67,6 +67,8 @@ export default function ServicesPage() {
   const [showModal, setShowModal] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [isToggling, setIsToggling] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const loadServices = async () => {
     setLoadingServices(true);
@@ -161,6 +163,7 @@ export default function ServicesPage() {
       return;
     }
 
+    setIsToggling(true);
     try {
       await api.patch(`/services/admin/${serviceId}/status`, {
         is_active: !currentStatus,
@@ -175,6 +178,8 @@ export default function ServicesPage() {
     } catch (err: any) {
       console.error("Failed to update service status:", err);
       alert("Failed to update service status. Please try again.");
+    } finally {
+      setIsToggling(false);
     }
   };
 
@@ -183,8 +188,9 @@ export default function ServicesPage() {
       return;
     }
 
+    setIsDeleting(true);
     try {
-      await api.delete(`/services/${serviceId}`);
+      await api.delete(`/services/admin/${serviceId}`);
       
       await loadServices();
       
@@ -195,6 +201,8 @@ export default function ServicesPage() {
     } catch (err: any) {
       console.error("Failed to delete service:", err);
       alert("Failed to delete service. Please try again.");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -626,23 +634,56 @@ export default function ServicesPage() {
                 <div style={styles.modalFooter}>
                   <button
                     onClick={() => handleStatusToggle(selectedService.id, selectedService.is_active)}
+                    disabled={isToggling || isDeleting}
                     style={{
-                          ...styles.modalButton,
-                          ...(selectedService.is_active 
-                            ? styles.modalSuspendButton   // Orange for Suspend when active
-                            : styles.modalResumeButton),  // Green for Resume when inactive
-                        }}
+                      ...styles.modalButton,
+                      ...(selectedService.is_active 
+                        ? styles.modalSuspendButton
+                        : styles.modalResumeButton),
+                      opacity: (isToggling || isDeleting) ? 0.7 : 1,
+                    }}
                   >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
-                    </svg>
-                    {selectedService.is_active ? "Deactivate Service" : "Activate Service"}
+                    {isToggling ? (
+                      <>
+                        <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        {selectedService.is_active ? "Deactivating..." : "Activating..."}
+                      </>
+                    ) : (
+                      <>
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                          <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
+                        </svg>
+                        {selectedService.is_active ? "Deactivate Service" : "Activate Service"}
+                      </>
+                    )}
                   </button>
-                  <button onClick={() => handleDelete(selectedService.id)} style={styles.modalDeleteButton}>
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                      <path d="M2 4h12M5.333 4V2.667a1.333 1.333 0 011.334-1.334h2.666a1.333 1.333 0 011.334 1.334V4m2 0v9.333a1.333 1.333 0 01-1.334 1.334H4.667a1.333 1.333 0 01-1.334-1.334V4h9.334z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                    Delete Service
+                  <button 
+                    onClick={() => handleDelete(selectedService.id)} 
+                    disabled={isToggling || isDeleting}
+                    style={{
+                      ...styles.modalDeleteButton,
+                      opacity: (isToggling || isDeleting) ? 0.7 : 1,
+                    }}
+                  >
+                    {isDeleting ? (
+                      <>
+                        <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        Deleting...
+                      </>
+                    ) : (
+                      <>
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                          <path d="M2 4h12M5.333 4V2.667a1.333 1.333 0 011.334-1.334h2.666a1.333 1.333 0 011.334 1.334V4m2 0v9.333a1.333 1.333 0 01-1.334 1.334H4.667a1.333 1.333 0 01-1.334-1.334V4h9.334z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        Delete Service
+                      </>
+                    )}
                   </button>
                 </div>
               </>
@@ -780,18 +821,16 @@ const styles: Record<string, React.CSSProperties> = {
   noImage: { height: 300, background: "#F3F4F6", borderRadius: 12, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, color: "#9CA3AF" },
   modalFooter: { display: "flex", justifyContent: "flex-end", gap: 12, padding: 24, borderTop: "1px solid #F3F4F6" },
   modalButton: { display: "flex", alignItems: "center", gap: 8, padding: "12px 20px", borderRadius: 12, fontSize: 14, fontWeight: "700", cursor: "pointer", border: "none" },
-  modalDeactivateButton: { background: "#FEE2E2", color: "#DC2626" },
-  modalActivateButton: { background: "#ECFDF5", color: "#059669" },
-  modalDeleteButton: { display: "flex", alignItems: "center", gap: 8, padding: "12px 20px", border: "none", background: "#DC2626", borderRadius: 12, fontSize: 14, fontWeight: "700", color: "white", cursor: "pointer" },
-  badge: { display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em" },
-    modalSuspendButton: {
-    background: "#FEF3C7", // Light amber
-    color: "#D97706",      // Dark amber text
+  modalSuspendButton: {
+    background: "#FEF3C7",
+    color: "#D97706",
   },
   modalResumeButton: {
     background: "#ECFDF5",
     color: "#059669",
   },
+  modalDeleteButton: { display: "flex", alignItems: "center", gap: 8, padding: "12px 20px", border: "none", background: "#DC2626", borderRadius: 12, fontSize: 14, fontWeight: "700", color: "white", cursor: "pointer" },
+  badge: { display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.05em" },
 };
 
 const styleSheet = document.createElement("style");
