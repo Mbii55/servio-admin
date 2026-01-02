@@ -20,16 +20,39 @@ export default function LoginPage() {
     [email, password, loading]
   );
 
+  const isValidEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    
+    const trimmedEmail = email.trim();
+    
+    if (!trimmedEmail) {
+      setError("Email is required");
+      return;
+    }
+    
+    if (!isValidEmail(trimmedEmail)) {
+      setError("Invalid email format");
+      return;
+    }
+    
+    if (!password) {
+      setError("Password is required");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await login(email.trim(), password);
+      await login(trimmedEmail, password);
       router.replace("/admin");
     } catch (err: any) {
-      setError(err?.message || "Login failed");
+      setError("Invalid credentials");
     } finally {
       setLoading(false);
     }
@@ -90,7 +113,6 @@ export default function LoginPage() {
                 placeholder="admin@calltoclean.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                required
                 autoComplete="email"
                 style={styles.input}
               />
@@ -123,7 +145,6 @@ export default function LoginPage() {
                 placeholder="Enter your password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                required
                 autoComplete="current-password"
                 style={styles.input}
               />
